@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lh-quant"
+version = "0.1.0"
+description = "一个用于学习量化研究的 Python 入门项目，包含真实数据下载、策略和回测。"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "akshare>=1.16",
+    "fastapi>=0.115",
+    "numpy>=2.0",
+    "pandas>=2.2",
+    "pydantic>=2.8",
+    "pymysql>=1.1",
+    "rich>=13.7",
+    "sqlalchemy>=2.0",
+    "typer>=0.12",
+    "uvicorn[standard]>=0.30",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.28",
+    "pytest>=8.2",
+    "ruff>=0.8",
+]
+notebook = [
+    "jupyterlab>=4.2",
+    "matplotlib>=3.9",
+]
+frameworks = [
+    "backtesting>=0.6",
+    "vectorbt>=0.28",
+]
+
+[project.scripts]
+lhq = "lh_quant.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lh_quant"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]

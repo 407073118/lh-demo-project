@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: 123456
+          MYSQL_DATABASE: lh_quant
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -p123456"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      LH_QUANT_DATABASE_URL: mysql+pymysql://root:123456@127.0.0.1:3306/lh_quant?charset=utf8mb4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: 安装 Python 依赖
+        run: |
+          python -m pip install -U pip
+          pip install -e ".[dev]"
+      - name: 安装前端依赖
+        working-directory: apps/web
+        run: npm ci
+      - name: Python 静态检查
+        run: ruff check .
+      - name: Python 测试
+        run: pytest
+      - name: 前端构建
+        working-directory: apps/web
+        run: npm run build
