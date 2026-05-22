@@ -17,10 +17,11 @@ export function UniverseDataSection({
 }) {
   return (
     <section className="form-section">
-      <h2>Universe/Data</h2>
+      <h2>标的与数据</h2>
       <label>
         股票代码
         <input
+          inputMode="numeric"
           value={form.symbol}
           onChange={(event) =>
             setForm((current) => ({ ...current, symbol: event.target.value.trim() }))
@@ -78,7 +79,7 @@ export function StrategyConfigSection({
 }) {
   return (
     <section className="form-section">
-      <h2>Strategy</h2>
+      <h2>策略配置</h2>
       <label>
         策略模板
         <select
@@ -110,18 +111,37 @@ export function StrategyConfigSection({
           {selectedStrategy.params.map((param) => (
             <label key={param.key}>
               {param.label}
-              <input
-                type="number"
-                min={param.min}
-                max={param.max}
-                step={param.step}
-                value={strategyParams[param.key] ?? param.default}
-                onChange={(event) => onParamChange(param, Number(event.target.value))}
-              />
-              <span className="param-help">
-                {param.helpText}
-                {param.unit ? `（单位：${param.unit}）` : ""}
-              </span>
+              {param.valueType === "bool" ? (
+                <input
+                  type="checkbox"
+                  checked={Boolean(strategyParams[param.key] ?? param.default)}
+                  onChange={(event) => onParamChange(param, event.target.checked ? 1 : 0)}
+                />
+              ) : param.valueType === "enum" || param.valueType === "factor" || param.valueType === "universe" ? (
+                <select
+                  value={String(strategyParams[param.key] ?? param.default)}
+                  onChange={(event) => onParamChange(param, Number(event.target.value))}
+                  disabled
+                >
+                  <option value={String(param.default)}>暂未启用</option>
+                </select>
+              ) : (
+                <input
+                  type="number"
+                  min={param.min}
+                  max={param.max}
+                  step={param.step}
+                  value={Number(strategyParams[param.key] ?? param.default)}
+                  onChange={(event) => onParamChange(param, Number(event.target.value))}
+                />
+              )}
+              <details className="param-help">
+                <summary>说明</summary>
+                <span>
+                  {param.helpText}
+                  {param.unit ? `（单位：${param.unit}）` : ""}
+                </span>
+              </details>
             </label>
           ))}
         </div>
@@ -141,7 +161,7 @@ export function RiskExecutionSection({
 }) {
   return (
     <section className="form-section">
-      <h2>Risk/Execution</h2>
+      <h2>资金与执行</h2>
       <div className="field-grid">
         <label>
           初始资金

@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "node --test tests/ui-regressions.test.mjs",
+    "smoke:e2e": "node --test tests/e2e-smoke.test.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },

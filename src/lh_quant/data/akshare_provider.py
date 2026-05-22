@@ -45,10 +45,13 @@ def download_akshare_bars(
         eastmoney_error = error
     else:
         if raw.empty:
-            raise AkShareDataError(f"AKShare 没有返回数据: {symbol} {start} 到 {end}")
-        bars = normalize_akshare_stock_hist(raw, symbol=symbol)
-        bars.attrs["source_detail"] = "AKShare 东方财富日线接口"
-        return bars
+            eastmoney_error = AkShareDataError(
+                f"AKShare Eastmoney returned no data: {symbol} {start} to {end}"
+            )
+        else:
+            bars = normalize_akshare_stock_hist(raw, symbol=symbol)
+            bars.attrs["source_detail"] = "AKShare 东方财富日线接口"
+            return bars
 
     try:
         raw_tx = ak.stock_zh_a_hist_tx(

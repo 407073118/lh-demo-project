@@ -46,3 +46,12 @@ jobs:
       - name: 前端构建
         working-directory: apps/web
         run: npm run build
+      - name: 前端回归测试
+        working-directory: apps/web
+        run: npm run test
+      - name: 安装 Playwright Chromium
+        working-directory: apps/web
+        run: npx playwright install chromium --with-deps
+      - name: 前端浏览器烟测
+        working-directory: apps/web
+        run: npm run smoke:e2e

@@ -24,7 +24,16 @@ from lh_quant.storage.schema import (
     backtest_runs,
     backtest_signals,
     backtest_trades,
+    corporate_actions,
+    factor_definitions,
+    factor_runs,
+    factor_values,
+    instruments,
     market_bars,
+    metadata,
+    strategy_sources,
+    sync_jobs,
+    trading_calendar,
 )
 from lh_quant.strategies.moving_average import moving_average_cross_signals
 
@@ -67,6 +76,33 @@ def test_market_bars_numeric_columns_use_double_precision() -> None:
     assert market_bars.c.low.type.precision == 53
     assert market_bars.c.close.type.precision == 53
     assert market_bars.c.volume.type.precision == 53
+
+
+def test_storage_schema_includes_quant_platform_foundation_tables() -> None:
+    expected_tables = {
+        "instruments",
+        "trading_calendar",
+        "corporate_actions",
+        "sync_jobs",
+        "factor_definitions",
+        "factor_values",
+        "factor_runs",
+        "strategy_sources",
+    }
+
+    assert expected_tables <= set(metadata.tables)
+    assert "uq_trading_calendar_identity" in {
+        constraint.name for constraint in trading_calendar.constraints
+    }
+    assert "uq_factor_values_identity" in {
+        constraint.name for constraint in factor_values.constraints
+    }
+    assert instruments.c.symbol.primary_key
+    assert corporate_actions.c.source.nullable is False
+    assert sync_jobs.c.status.nullable is False
+    assert factor_definitions.c.factor_id.primary_key
+    assert factor_runs.c.status.nullable is False
+    assert strategy_sources.c.review_status.nullable is False
 
 
 def test_storage_rejects_cache_when_saved_range_does_not_cover_request(tmp_path: Path) -> None:

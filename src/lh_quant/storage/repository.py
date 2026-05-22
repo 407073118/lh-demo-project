@@ -174,6 +174,12 @@ def save_backtest_run(
     equity_curve: pd.DataFrame | None = None,
     signals: pd.Series | None = None,
     bars: pd.DataFrame | None = None,
+    data_source_detail: str | None = None,
+    data_version: str | None = None,
+    strategy_version: str | None = None,
+    engine_version: str | None = None,
+    engine_assumptions: dict[str, Any] | None = None,
+    run_inputs: dict[str, Any] | None = None,
 ) -> str:
     """保存一次回测运行摘要和可复盘的明细数据，并返回运行编号。"""
 
@@ -191,6 +197,12 @@ def save_backtest_run(
                 params=params,
                 metrics=metrics,
                 logs=logs,
+                data_source_detail=data_source_detail,
+                data_version=data_version,
+                strategy_version=strategy_version,
+                engine_version=engine_version,
+                engine_assumptions=engine_assumptions,
+                run_inputs=run_inputs,
             )
         )
         if trades is not None and not trades.empty:
@@ -230,6 +242,12 @@ def list_backtest_runs(engine: Engine, limit: int = 20) -> list[dict[str, Any]]:
             "params": row["params"],
             "metrics": row["metrics"],
             "logs": row["logs"],
+            "dataSourceDetail": row.get("data_source_detail"),
+            "dataVersion": row.get("data_version"),
+            "strategyVersion": row.get("strategy_version"),
+            "engineVersion": row.get("engine_version"),
+            "engineAssumptions": row.get("engine_assumptions") or {},
+            "runInputs": row.get("run_inputs") or {},
             "createdAt": row["created_at"].isoformat(sep=" "),
         }
         for row in rows
@@ -278,6 +296,12 @@ def load_backtest_run_detail(engine: Engine, run_id: str) -> dict[str, Any] | No
             "params": run["params"],
             "metrics": run["metrics"],
             "logs": run["logs"],
+            "dataSourceDetail": run.get("data_source_detail"),
+            "dataVersion": run.get("data_version"),
+            "strategyVersion": run.get("strategy_version"),
+            "engineVersion": run.get("engine_version"),
+            "engineAssumptions": run.get("engine_assumptions") or {},
+            "runInputs": run.get("run_inputs") or {},
             "createdAt": run["created_at"].isoformat(sep=" "),
         },
         "trades": [

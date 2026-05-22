@@ -29,11 +29,20 @@ export function RiskReturnPanel({
   return (
     <div className="risk-return-layout">
       <section className="panel">
-        <div className="panel-title">权益与回撤</div>
-        {equityOption ? <EChart option={equityOption} className="chart chart-large" /> : null}
+        <h2 className="panel-title">权益与回撤</h2>
+        {equityOption ? (
+          <EChart
+            option={equityOption}
+            className="chart chart-large"
+            ariaLabel="权益曲线和回撤曲线图"
+            fallback="图表展示账户权益随时间变化，以及对应回撤百分比。"
+          />
+        ) : (
+          <div className="chart-empty">暂无权益曲线。</div>
+        )}
       </section>
       <section className="panel">
-        <div className="panel-title">风险指标</div>
+        <h2 className="panel-title">风险指标</h2>
         <div className="compact-metric-grid">
           {riskItems.map(([label, value]) => (
             <div className="compact-metric" key={label}>

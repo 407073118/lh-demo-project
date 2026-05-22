@@ -21,6 +21,33 @@ def test_strategy_specs_expose_initial_configurable_strategies() -> None:
     assert specs[0]["params"][0]["key"] == "fastWindow"
 
 
+def test_strategy_specs_include_asset_metadata() -> None:
+    specs = get_strategy_specs()
+    strategy = specs[0]
+
+    assert set(strategy) >= {
+        "version",
+        "source",
+        "license",
+        "tags",
+        "supportedFrequencies",
+        "riskLevel",
+    }
+    assert strategy["version"]
+    assert strategy["source"]["type"] == "built_in"
+    assert strategy["license"] == "internal"
+    assert isinstance(strategy["tags"], list)
+    assert strategy["supportedFrequencies"] == ["1d"]
+    assert {param["valueType"] for param in strategy["params"]} <= {
+        "int",
+        "float",
+        "bool",
+        "enum",
+        "factor",
+        "universe",
+    }
+
+
 def test_strategy_specs_include_constraints_for_frontend_validation() -> None:
     """策略规格会暴露前端可复用的参数关系约束。"""
 

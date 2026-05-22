@@ -39,6 +39,120 @@ def test_api_health_returns_chinese_platform_status(tmp_path) -> None:
     assert response.json()["name"] == "LH Quant A股研究工作台"
 
 
+def test_api_allows_local_vite_fallback_ports(tmp_path) -> None:
+    from lh_quant.api.app import create_app
+
+    database_url = f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}"
+    client = TestClient(create_app(database_url=database_url))
+
+    response = client.options(
+        "/api/health",
+        headers={
+            "Origin": "http://127.0.0.1:5181",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:5181"
+
+
+def test_api_exposes_platform_capabilities_for_quant_workspace(tmp_path) -> None:
+    from lh_quant.api.app import create_app
+
+    database_url = f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}"
+    client = TestClient(create_app(database_url=database_url))
+
+    response = client.get("/api/platform/capabilities")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["apiVersion"] == "v1"
+    assert [module["id"] for module in payload["modules"]] == [
+        "data",
+        "research",
+        "backtest",
+        "simulation",
+    ]
+    assert payload["modules"][0]["status"] == "available"
+    assert payload["modules"][2]["features"] >= ["任务化回测", "历史详情恢复"]
+    assert payload["modules"][3]["status"] == "planned"
+
+
+def test_api_exposes_data_catalog_with_platform_sections(tmp_path) -> None:
+    from lh_quant.api.app import create_app
+
+    database_url = f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}"
+    client = TestClient(create_app(database_url=database_url))
+
+    response = client.get("/api/data/catalog")
+
+    assert response.status_code == 200
+    payload = response.json()
+    dataset_ids = [dataset["id"] for dataset in payload["datasets"]]
+    assert "a_share_daily_bars" in dataset_ids
+    assert "fundamentals" in dataset_ids
+    assert payload["datasets"][0]["status"] == "available"
+    assert payload["datasets"][0]["frequency"] == "1d"
+    assert payload["datasets"][0]["fields"] >= ["open", "high", "low", "close", "volume"]
+    assert payload["datasets"][1]["status"] == "planned"
+
+
+def test_api_exposes_data_assets_with_quality_fields(tmp_path) -> None:
+    from lh_quant.api.app import create_app
+
+    database_url = f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}"
+    client = TestClient(create_app(database_url=database_url))
+
+    response = client.get("/api/data/assets")
+
+    assert response.status_code == 200
+    asset = response.json()["assets"][0]
+    assert set(asset) >= {
+        "id",
+        "name",
+        "provider",
+        "status",
+        "coverage",
+        "lastSync",
+        "quality",
+        "rowCount",
+    }
+    assert set(asset["quality"]) >= {"status", "score", "message"}
+
+
+def test_api_exposes_data_asset_detail(tmp_path) -> None:
+    from lh_quant.api.app import create_app
+
+    database_url = f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}"
+    client = TestClient(create_app(database_url=database_url))
+
+    response = client.get("/api/data/assets/a_share_daily_bars")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "asset" in payload
+    assert "fields" in payload["asset"]
+    assert "syncJobs" in payload["asset"]
+
+
+def test_api_exposes_factor_catalog(tmp_path) -> None:
+    from lh_quant.api.app import create_app
+
+    database_url = f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}"
+    client = TestClient(create_app(database_url=database_url))
+
+    response = client.get("/api/factors")
+
+    assert response.status_code == 200
+    assert {factor["id"] for factor in response.json()["factors"]} >= {
+        "return_20d",
+        "volatility_20d",
+        "ma_20d",
+        "rsi_14d",
+    }
+
+
 def test_api_lists_configurable_strategies(tmp_path) -> None:
     """策略列表接口返回可配置参数和前端校验约束。"""
 
@@ -172,6 +286,12 @@ def test_api_backtest_runs_a_share_moving_average_flow(tmp_path, monkeypatch) ->
     assert payload["strategy"]["name"] == "双均线策略"
     assert payload["dataSource"]["provider"] == "AKShare"
     assert payload["dataSource"]["cached"] is False
+    assert set(payload["dataSource"]) >= {
+        "sourceDetail",
+        "dataVersion",
+        "coverage",
+        "engineAssumptions",
+    }
     assert len(payload["bars"]) == 90
     assert len(payload["equityCurve"]) == 90
     assert set(payload["metrics"]) >= {
@@ -357,9 +477,56 @@ def test_api_loads_backtest_run_detail(tmp_path, monkeypatch) -> None:
     assert payload["database"]["connected"] is True
     assert payload["runId"] == run_id
     assert payload["summary"]["symbol"] == "000001"
+    assert payload["bars"]
+    assert len(payload["bars"]) == 90
+    assert payload["indicatorLines"]
+    assert payload["indicatorLines"][0]["points"]
+    assert payload["movingAverages"]
     assert payload["equityCurve"]
     assert payload["signals"]
     assert payload["trades"]
+
+
+def test_api_creates_backtest_job_and_restores_job_result(tmp_path, monkeypatch) -> None:
+    from lh_quant.api.app import create_app
+
+    database_url = f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}"
+    bars = generate_sample_bars(symbol="000001", periods=90)
+
+    def fake_download_akshare_bars(symbol: str, start: str, end: str, adjust: str) -> pd.DataFrame:
+        return bars
+
+    monkeypatch.setattr("lh_quant.api.app.download_akshare_bars", fake_download_akshare_bars)
+    client = TestClient(create_app(database_url=database_url))
+
+    create_response = client.post(
+        "/api/backtests/jobs",
+        json={
+            "symbol": "000001",
+            "start": "2024-01-01",
+            "end": "2024-06-30",
+            "strategyId": "moving_average",
+            "strategyParams": {"fastWindow": 5, "slowWindow": 20},
+            "cash": 100000,
+            "adjust": "qfq",
+        },
+    )
+
+    assert create_response.status_code == 200
+    created = create_response.json()
+    assert created["job"]["status"] == "succeeded"
+    assert created["job"]["progress"] == 1
+    assert created["job"]["runId"] == created["result"]["runId"]
+    assert created["job"]["engine"] == "sync-local"
+    assert created["result"]["bars"]
+
+    detail_response = client.get(f"/api/backtests/jobs/{created['job']['runId']}")
+
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["job"]["status"] == "succeeded"
+    assert detail["result"]["runId"] == created["job"]["runId"]
+    assert detail["result"]["bars"]
 
 
 def test_api_backtest_run_detail_returns_404_for_unknown_run(tmp_path) -> None:

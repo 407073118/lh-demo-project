@@ -1,13 +1,14 @@
 export type StrategyParamDefinition = {
   key: string;
   label: string;
-  valueType: "int" | "float";
-  default: number;
-  min: number;
-  max: number;
-  step: number;
+  valueType: "int" | "float" | "bool" | "enum" | "factor" | "universe";
+  default: number | string | boolean;
+  min?: number;
+  max?: number;
+  step?: number;
   unit: string;
   helpText: string;
+  options?: string[];
 };
 
 export type StrategyConstraint =
@@ -30,6 +31,16 @@ export type StrategyDefinition = {
   name: string;
   description: string;
   category: string;
+  version?: string;
+  source?: {
+    type: string;
+    name?: string;
+    url?: string;
+  };
+  license?: string;
+  tags?: string[];
+  supportedFrequencies?: string[];
+  riskLevel?: string;
   params: StrategyParamDefinition[];
   constraints: StrategyConstraint[];
 };
@@ -38,7 +49,9 @@ export type StrategiesResponse = {
   strategies: StrategyDefinition[];
 };
 
-export type StrategyParams = Record<string, number>;
+export type StrategyParamValue = number | string | boolean;
+
+export type StrategyParams = Record<string, StrategyParamValue>;
 
 export type BacktestRequest = {
   symbol: string;
@@ -109,6 +122,95 @@ export type DatabaseStatus = {
   message: string;
 };
 
+export type PlatformModuleStatus = "available" | "preview" | "planned";
+
+export type PlatformModule = {
+  id: string;
+  name: string;
+  status: PlatformModuleStatus;
+  description: string;
+  features: string[];
+};
+
+export type PlatformCapabilitiesResponse = {
+  apiVersion: string;
+  modules: PlatformModule[];
+};
+
+export type DataCatalogDataset = {
+  id: string;
+  name: string;
+  status: PlatformModuleStatus;
+  provider: string;
+  frequency: string;
+  coverage: string;
+  fields: string[];
+};
+
+export type DataCatalogResponse = {
+  database: DatabaseStatus;
+  datasets: DataCatalogDataset[];
+};
+
+export type DataQuality = {
+  status: "complete" | "missing" | "unknown";
+  score: number | null;
+  message: string;
+};
+
+export type DataAsset = {
+  id: string;
+  name: string;
+  provider: string;
+  status: PlatformModuleStatus | "degraded";
+  coverage: string;
+  lastSync: string | null;
+  quality: DataQuality;
+  rowCount: number;
+  fields: string[];
+};
+
+export type DataAssetsResponse = {
+  database: DatabaseStatus;
+  assets: DataAsset[];
+};
+
+export type DataAssetDetailResponse = {
+  database: DatabaseStatus;
+  asset: DataAsset & {
+    description: string;
+    syncJobs: Array<{
+      jobId: string;
+      jobType: string;
+      provider: string;
+      status: string;
+      progress: number;
+      startedAt: string | null;
+      completedAt: string | null;
+      params: Record<string, unknown>;
+      message: string | null;
+      error: string | null;
+    }>;
+  };
+};
+
+export type FactorDefinition = {
+  id: string;
+  name: string;
+  category: string;
+  frequency: string;
+  direction: string;
+  description: string;
+  source: string;
+  license: string;
+  formula: string;
+  status: string;
+};
+
+export type FactorsResponse = {
+  factors: FactorDefinition[];
+};
+
 export type HealthResponse = {
   status: string;
   name: string;
@@ -131,6 +233,17 @@ export type BacktestResponse = {
     start: string;
     end: string;
     cached: boolean;
+    sourceDetail?: string;
+    dataVersion?: string;
+    coverage?: {
+      status: "complete" | "missing" | "unknown";
+      expectedRows: number | null;
+      actualRows: number;
+      missingDates: string[];
+      lastTradeDate: string | null;
+    };
+    engineVersion?: string;
+    engineAssumptions?: Record<string, string>;
   };
   database: DatabaseStatus;
   metrics: {
@@ -167,6 +280,23 @@ export type BacktestResponse = {
   logs: string[];
 };
 
+export type BacktestJob = {
+  runId: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "canceled";
+  progress: number;
+  engine: string;
+  submittedAt: string;
+  completedAt?: string;
+  symbol: string;
+  strategyName: string;
+  message: string;
+};
+
+export type BacktestJobResponse = {
+  job: BacktestJob;
+  result: BacktestResponse;
+};
+
 export type RunSummary = {
   runId: string;
   symbol: string;
@@ -176,6 +306,12 @@ export type RunSummary = {
   start: string;
   end: string;
   params: Record<string, unknown>;
+  dataSourceDetail?: string | null;
+  dataVersion?: string | null;
+  strategyVersion?: string | null;
+  engineVersion?: string | null;
+  engineAssumptions?: Record<string, string>;
+  runInputs?: Record<string, unknown>;
   metrics: {
     starting_cash?: number;
     final_equity?: number;
@@ -212,6 +348,9 @@ export type PersistedRunDetail = {
   database: DatabaseStatus;
   runId: string;
   summary: RunSummary;
+  bars: BarRecord[];
+  indicatorLines: IndicatorLine[];
+  movingAverages: MovingAverageRecord[];
   trades: TradeRecord[];
   equityCurve: Omit<EquityRecord, "drawdown">[];
   signals: SignalRecord[];
@@ -235,8 +374,48 @@ export async function fetchStrategies(): Promise<StrategiesResponse> {
   return response.json();
 }
 
-export async function runBacktest(request: BacktestRequest): Promise<BacktestResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/backtests/run`, {
+export async function fetchPlatformCapabilities(): Promise<PlatformCapabilitiesResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/platform/capabilities`);
+  if (!response.ok) {
+    throw new Error("读取平台能力失败");
+  }
+  return response.json();
+}
+
+export async function fetchDataCatalog(): Promise<DataCatalogResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/data/catalog`);
+  if (!response.ok) {
+    throw new Error("读取数据目录失败");
+  }
+  return response.json();
+}
+
+export async function fetchDataAssets(): Promise<DataAssetsResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/data/assets`);
+  if (!response.ok) {
+    throw new Error("读取数据资产失败");
+  }
+  return response.json();
+}
+
+export async function fetchDataAssetDetail(assetId: string): Promise<DataAssetDetailResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/data/assets/${assetId}`);
+  if (!response.ok) {
+    throw new Error("读取数据资产详情失败");
+  }
+  return response.json();
+}
+
+export async function fetchFactors(): Promise<FactorsResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/factors`);
+  if (!response.ok) {
+    throw new Error("读取因子列表失败");
+  }
+  return response.json();
+}
+
+export async function runBacktestJob(request: BacktestRequest): Promise<BacktestJobResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/backtests/jobs`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -250,6 +429,20 @@ export async function runBacktest(request: BacktestRequest): Promise<BacktestRes
   }
 
   return response.json();
+}
+
+export async function fetchBacktestJob(runId: string): Promise<BacktestJobResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/backtests/jobs/${runId}`);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(normalizeApiError(payload?.detail, response.status));
+  }
+  return response.json();
+}
+
+export async function runBacktest(request: BacktestRequest): Promise<BacktestResponse> {
+  const payload = await runBacktestJob(request);
+  return payload.result;
 }
 
 export async function runMovingAverageBacktest(

@@ -21,8 +21,9 @@ from lh_quant.strategies.momentum import (
 from lh_quant.strategies.moving_average import moving_average_cross_signals
 from lh_quant.strategies.rsi import rsi_reversion_signals
 
-ParamValueType = Literal["int", "float"]
-StrategyParams = dict[str, int | float]
+ParamValueType = Literal["int", "float", "bool", "enum", "factor", "universe"]
+StrategyParamValue = int | float | bool | str
+StrategyParams = dict[str, StrategyParamValue]
 SignalBuilder = Callable[[pd.DataFrame, StrategyParams], pd.Series]
 OverlayBuilder = Callable[[pd.DataFrame, StrategyParams], list[dict[str, Any]]]
 Validator = Callable[[StrategyParams], None]
@@ -100,6 +101,12 @@ class StrategyDefinition:
     overlay_builder: OverlayBuilder
     constraints: tuple[StrategyConstraintDefinition, ...] = ()
     validator: Validator | None = None
+    version: str = "1.0.0"
+    source: dict[str, Any] | None = None
+    license: str = "internal"
+    tags: tuple[str, ...] = ()
+    supported_frequencies: tuple[str, ...] = ("1d",)
+    risk_level: str = "medium"
 
     def to_json(self) -> dict[str, Any]:
         """转换成策略列表接口使用的 JSON 结构。"""
@@ -109,6 +116,12 @@ class StrategyDefinition:
             "name": self.name,
             "description": self.description,
             "category": self.category,
+            "version": self.version,
+            "source": self.source or {"type": "built_in", "name": "LH Quant"},
+            "license": self.license,
+            "tags": list(self.tags),
+            "supportedFrequencies": list(self.supported_frequencies),
+            "riskLevel": self.risk_level,
             "params": [param.to_json() for param in self.params],
             "constraints": [constraint.to_json() for constraint in self.constraints],
         }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 import pandas as pd
@@ -11,6 +12,12 @@ from pydantic import BaseModel, Field, model_validator
 
 from lh_quant.backtest.engine import BacktestResult, run_signal_backtest
 from lh_quant.data.akshare_provider import AkShareDataError, download_akshare_bars
+from lh_quant.factors.registry import get_factor_specs
+from lh_quant.storage.data_repository import (
+    get_data_asset_detail,
+    inspect_market_bar_coverage,
+    list_data_assets,
+)
 from lh_quant.storage.database import (
     DatabaseStatus,
     create_database_engine,
@@ -115,6 +122,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
             "http://localhost:5178",
             "http://localhost:5188",
         ],
+        allow_origin_regex=r"^http://(127\.0\.0\.1|localhost):\d+$",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -138,6 +146,55 @@ def create_app(database_url: str | None = None) -> FastAPI:
             "database": _database_status_to_json(application.state.db_status),
         }
 
+    @application.get("/api/platform/capabilities")
+    def platform_capabilities() -> dict[str, Any]:
+        """返回平台能力地图，供前端展示数据、研究、回测和模拟交易模块。"""
+
+        return _platform_capabilities_to_json()
+
+    @application.get("/api/data/catalog")
+    def data_catalog() -> dict[str, Any]:
+        """返回数据服务目录，标注可用数据和待建设数据域。"""
+
+        _ensure_database_initialized(application, database_url)
+        return {
+            "database": _database_status_to_json(application.state.db_status),
+            "datasets": _data_catalog_to_json(),
+        }
+
+    @application.get("/api/data/assets")
+    def data_assets() -> dict[str, Any]:
+        """返回持久化数据资产及其覆盖率和质量摘要。"""
+
+        _ensure_database_initialized(application, database_url)
+        if not application.state.db_status.connected:
+            return {"database": _database_status_to_json(application.state.db_status), "assets": []}
+        return {
+            "database": _database_status_to_json(application.state.db_status),
+            "assets": list_data_assets(application.state.db_engine),
+        }
+
+    @application.get("/api/data/assets/{asset_id}")
+    def data_asset_detail(asset_id: str) -> dict[str, Any]:
+        """返回单个数据资产的字段和最近同步任务。"""
+
+        _ensure_database_initialized(application, database_url)
+        if not application.state.db_status.connected:
+            raise HTTPException(status_code=503, detail="Database is not connected.")
+        asset = get_data_asset_detail(application.state.db_engine, asset_id)
+        if asset is None:
+            raise HTTPException(status_code=404, detail="Data asset not found.")
+        return {
+            "database": _database_status_to_json(application.state.db_status),
+            "asset": asset,
+        }
+
+    @application.get("/api/factors")
+    def list_factors() -> dict[str, Any]:
+        """返回本地和未来外部同步的因子定义。"""
+
+        return {"factors": get_factor_specs()}
+
     @application.get("/api/backtests/runs")
     def recent_backtest_runs(limit: int = Query(default=20, ge=1, le=100)) -> dict[str, Any]:
         """返回最近的回测运行记录。"""
@@ -150,6 +207,46 @@ def create_app(database_url: str | None = None) -> FastAPI:
             "runs": list_backtest_runs(application.state.db_engine, limit=limit),
         }
 
+    @application.post("/api/backtests/jobs")
+    def create_backtest_job(request: BacktestRunRequest) -> dict[str, Any]:
+        """以任务形态提交回测，当前使用本地同步引擎执行并立即返回结果。"""
+
+        submitted_at = _utc_now_text()
+        result = _run_strategy_backtest(application, database_url, request)
+        completed_at = _utc_now_text()
+        return {
+            "job": _job_to_json(
+                result=result,
+                submitted_at=submitted_at,
+                completed_at=completed_at,
+            ),
+            "result": result,
+        }
+
+    @application.get("/api/backtests/jobs/{run_id}")
+    def backtest_job_detail(run_id: str) -> dict[str, Any]:
+        """按任务编号读取回测任务状态和已恢复的结果。"""
+
+        _ensure_database_initialized(application, database_url)
+        if not application.state.db_status.connected:
+            raise HTTPException(status_code=503, detail="数据库未连接，无法读取回测任务")
+        detail = load_backtest_run_detail(application.state.db_engine, run_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="回测任务不存在")
+        detail = _hydrate_persisted_run_detail(application.state.db_engine, detail)
+        result = _persisted_detail_to_backtest_result(
+            detail=detail,
+            db_status=application.state.db_status,
+        )
+        return {
+            "job": _job_to_json(
+                result=result,
+                submitted_at=detail["summary"]["createdAt"],
+                completed_at=detail["summary"]["createdAt"],
+            ),
+            "result": result,
+        }
+
     @application.get("/api/backtests/{run_id}")
     def backtest_run_detail(run_id: str) -> dict[str, Any]:
         """返回一次已持久化的回测运行和可用明细。"""
@@ -160,6 +257,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
         detail = load_backtest_run_detail(application.state.db_engine, run_id)
         if detail is None:
             raise HTTPException(status_code=404, detail="回测运行不存在")
+        detail = _hydrate_persisted_run_detail(application.state.db_engine, detail)
         return {
             "database": _database_status_to_json(application.state.db_status),
             **detail,
@@ -216,7 +314,7 @@ def _run_strategy_backtest(
     try:
         strategy = get_strategy_definition(request.strategyId)
         strategy_params = normalize_strategy_params(request.strategyId, request.strategyParams)
-        bars, provider, cached, data_logs = _get_a_share_bars(
+        bars, provider, cached, data_logs, data_lineage = _get_a_share_bars(
             engine=application.state.db_engine,
             db_status=application.state.db_status,
             symbol=request.symbol,
@@ -246,6 +344,7 @@ def _run_strategy_backtest(
         provider=provider,
         cached=cached,
         data_logs=data_logs,
+        data_lineage=data_lineage,
         db_status=application.state.db_status,
     )
     run_id = save_backtest_run(
@@ -263,6 +362,12 @@ def _run_strategy_backtest(
         equity_curve=result.equity_curve,
         signals=signals,
         bars=bars,
+        data_source_detail=data_lineage["sourceDetail"],
+        data_version=data_lineage["dataVersion"],
+        strategy_version=strategy.version,
+        engine_version=data_lineage["engineVersion"],
+        engine_assumptions=data_lineage["engineAssumptions"],
+        run_inputs=payload["strategy"]["params"],
     )
     payload["runId"] = run_id
     payload["logs"].append("已保存回测记录到数据库")
@@ -278,6 +383,283 @@ def _ensure_database_initialized(application: FastAPI, database_url: str | None)
     application.state.db_status = initialize_database_safely(application.state.db_engine)
 
 
+def _platform_capabilities_to_json() -> dict[str, Any]:
+    """把平台能力整理成前端工作台导航可以直接消费的模块列表。"""
+
+    return {
+        "apiVersion": "v1",
+        "modules": [
+            {
+                "id": "data",
+                "name": "数据服务",
+                "status": "available",
+                "description": "A股日线行情入库、缓存命中和数据血缘展示。",
+                "features": ["A股日线", "行情缓存", "数据血缘"],
+            },
+            {
+                "id": "research",
+                "name": "研究环境",
+                "status": "preview",
+                "description": "策略模板、参数约束和指标叠加已经可在工作台配置。",
+                "features": ["策略模板", "参数校验", "指标叠加"],
+            },
+            {
+                "id": "backtest",
+                "name": "回测分析",
+                "status": "available",
+                "description": "任务化提交回测，保存运行摘要并恢复图表明细。",
+                "features": ["任务化回测", "历史详情恢复"],
+            },
+            {
+                "id": "simulation",
+                "name": "模拟交易",
+                "status": "planned",
+                "description": "组合持仓、订单撮合和实时监控仍处在规划阶段。",
+                "features": ["组合持仓", "订单撮合", "实时监控"],
+            },
+        ],
+    }
+
+
+def _data_catalog_to_json() -> list[dict[str, Any]]:
+    """返回对齐量化平台的数据目录，区分已可用和待建设数据域。"""
+
+    return [
+        {
+            "id": "a_share_daily_bars",
+            "name": "A股日线行情",
+            "status": "available",
+            "provider": "AKShare",
+            "frequency": "1d",
+            "coverage": "按请求区间入库，支持前复权、后复权和不复权。",
+            "fields": ["open", "high", "low", "close", "volume"],
+        },
+        {
+            "id": "fundamentals",
+            "name": "财务与估值",
+            "status": "planned",
+            "provider": "待接入",
+            "frequency": "quarterly",
+            "coverage": "利润表、资产负债表、现金流和常用估值因子。",
+            "fields": ["revenue", "net_profit", "pe_ratio", "market_cap"],
+        },
+        {
+            "id": "factors",
+            "name": "因子库",
+            "status": "planned",
+            "provider": "待接入",
+            "frequency": "1d",
+            "coverage": "动量、波动、质量、规模和自定义研究因子。",
+            "fields": ["factor_value", "neutralized_value", "rank", "zscore"],
+        },
+        {
+            "id": "market_rules",
+            "name": "交易规则",
+            "status": "planned",
+            "provider": "本地规则表",
+            "frequency": "event",
+            "coverage": "停复牌、涨跌停、手续费、滑点和成交约束。",
+            "fields": ["is_paused", "limit_up", "limit_down", "commission", "slippage"],
+        },
+    ]
+
+
+def _utc_now_text() -> str:
+    """生成 API 返回中统一使用的 UTC 时间文本。"""
+
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _job_to_json(
+    result: dict[str, Any],
+    submitted_at: str,
+    completed_at: str,
+) -> dict[str, Any]:
+    """把同步回测结果包装成任务状态，给前端保留异步任务形态。"""
+
+    strategy = result.get("strategy") if isinstance(result.get("strategy"), dict) else {}
+    return {
+        "runId": result.get("runId"),
+        "status": "succeeded",
+        "progress": 1,
+        "engine": "sync-local",
+        "submittedAt": submitted_at,
+        "completedAt": completed_at,
+        "symbol": result.get("symbol"),
+        "strategyName": strategy.get("name", ""),
+        "message": "本地同步回测已完成",
+    }
+
+
+def _persisted_detail_to_backtest_result(
+    detail: dict[str, Any],
+    db_status: DatabaseStatus,
+) -> dict[str, Any]:
+    """把已持久化的运行详情恢复成与新回测相同的前端结果结构。"""
+
+    summary = detail["summary"]
+    request = _request_from_run_summary(summary)
+    return {
+        "runId": detail["runId"],
+        "symbol": summary["symbol"],
+        "strategy": {
+            "id": summary["strategyId"],
+            "name": summary["strategyName"],
+            "params": request,
+        },
+        "dataSource": {
+            "provider": summary["provider"],
+            "frequency": "1d",
+            "adjust": request["adjust"],
+            "start": summary["start"],
+            "end": summary["end"],
+            "cached": True,
+            "sourceDetail": summary.get("dataSourceDetail") or "persisted run",
+            "dataVersion": summary.get("dataVersion") or "unknown",
+            "coverage": {
+                "status": "unknown",
+                "expectedRows": None,
+                "actualRows": len(detail.get("bars", [])),
+                "missingDates": [],
+                "lastTradeDate": None,
+            },
+            "engineVersion": summary.get("engineVersion") or "signal-close-v1",
+            "engineAssumptions": summary.get("engineAssumptions") or _engine_assumptions_json(),
+        },
+        "database": _database_status_to_json(db_status),
+        "metrics": _metrics_from_run_summary(summary, detail),
+        "bars": detail.get("bars", []),
+        "indicatorLines": detail.get("indicatorLines", []),
+        "movingAverages": detail.get("movingAverages", []),
+        "signals": detail.get("signals", []),
+        "equityCurve": _equity_with_drawdown_from_persisted(detail.get("equityCurve", [])),
+        "trades": detail.get("trades", []),
+        "logs": ["历史回测任务结果已恢复", *summary.get("logs", [])],
+    }
+
+
+def _request_from_run_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    """从历史运行摘要中恢复回测请求参数，并为旧数据填补默认值。"""
+
+    raw_params = summary["params"] if isinstance(summary.get("params"), dict) else {}
+    metrics = summary["metrics"] if isinstance(summary.get("metrics"), dict) else {}
+    strategy_params = raw_params.get("strategyParams")
+    if not isinstance(strategy_params, dict):
+        strategy_params = {
+            key: value
+            for key, value in raw_params.items()
+            if isinstance(value, (int, float)) and key not in {"cash", "commissionRate"}
+        }
+    cash = raw_params.get("cash", metrics.get("starting_cash", 100_000.0))
+    commission_rate = raw_params.get("commissionRate", 0.001)
+    return {
+        "symbol": raw_params.get("symbol", summary["symbol"]),
+        "start": raw_params.get("start", summary["start"]),
+        "end": raw_params.get("end", summary["end"]),
+        "strategyId": raw_params.get("strategyId", summary["strategyId"]),
+        "strategyParams": strategy_params,
+        "cash": cash if isinstance(cash, (int, float)) else 100_000.0,
+        "commissionRate": commission_rate if isinstance(commission_rate, (int, float)) else 0.001,
+        "adjust": raw_params.get("adjust", "qfq"),
+    }
+
+
+def _metrics_from_run_summary(
+    summary: dict[str, Any],
+    detail: dict[str, Any],
+) -> dict[str, float | int | None]:
+    """把历史运行摘要里的蛇形指标恢复为前端使用的驼峰指标。"""
+
+    request = _request_from_run_summary(summary)
+    metrics = summary["metrics"] if isinstance(summary.get("metrics"), dict) else {}
+    return {
+        "startingCash": metrics.get("starting_cash", request["cash"]),
+        "finalEquity": metrics.get("final_equity", request["cash"]),
+        "totalReturn": metrics.get("total_return", 0),
+        "annualizedReturn": metrics.get("annualized_return"),
+        "annualizedVolatility": metrics.get("annualized_volatility"),
+        "sharpeRatio": metrics.get("sharpe_ratio"),
+        "sortinoRatio": metrics.get("sortino_ratio"),
+        "calmarRatio": metrics.get("calmar_ratio"),
+        "maxDrawdown": metrics.get("max_drawdown", 0),
+        "tradeCount": metrics.get("trade_count", 0),
+        "closedTradeCount": metrics.get("closed_trade_count"),
+        "winRate": metrics.get("win_rate"),
+        "profitFactor": metrics.get("profit_factor"),
+        "expectancy": metrics.get("expectancy"),
+        "averageWin": metrics.get("average_win"),
+        "averageLoss": metrics.get("average_loss"),
+        "totalCommission": metrics.get("total_commission"),
+        "exposure": metrics.get("exposure"),
+        "averagePositionWeight": metrics.get("average_position_weight"),
+        "maxPositionWeight": metrics.get("max_position_weight"),
+        "turnover": metrics.get("turnover"),
+        "barCount": len(detail.get("bars", [])) or len(detail.get("equityCurve", [])),
+        "signalCount": len(detail.get("signals", [])),
+    }
+
+
+def _equity_with_drawdown_from_persisted(
+    equity_curve: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """为历史权益曲线补计算回撤字段，让任务详情与实时回测保持一致。"""
+
+    peak = 0.0
+    records: list[dict[str, Any]] = []
+    for point in equity_curve:
+        equity = float(point.get("equity", 0) or 0)
+        peak = max(peak, equity)
+        records.append(
+            {
+                **point,
+                "drawdown": equity / peak - 1.0 if peak > 0 else 0.0,
+            }
+        )
+    return records
+
+
+def _hydrate_persisted_run_detail(engine: Any, detail: dict[str, Any]) -> dict[str, Any]:
+    """在缓存可用时，为历史运行详情补齐图表所需的行情和指标线。"""
+
+    summary = detail["summary"]
+    params = summary["params"] if isinstance(summary.get("params"), dict) else {}
+    strategy_id = str(summary["strategyId"])
+    adjust = str(params.get("adjust", "qfq"))
+
+    bars = load_market_bars(
+        engine=engine,
+        provider=str(summary["provider"]),
+        symbol=str(summary["symbol"]),
+        frequency="1d",
+        adjust=adjust,
+        start=str(summary["start"]),
+        end=str(summary["end"]),
+    )
+    if bars is None:
+        return {**detail, "bars": [], "indicatorLines": [], "movingAverages": []}
+
+    raw_strategy_params = params.get("strategyParams")
+    if not isinstance(raw_strategy_params, dict):
+        raw_strategy_params = params
+
+    try:
+        strategy_params = normalize_strategy_params(strategy_id, raw_strategy_params)
+        indicator_lines = build_strategy_overlays(strategy_id, bars, strategy_params)
+    except ValueError:
+        indicator_lines = []
+
+    return {
+        **detail,
+        "bars": _bars_to_json(bars),
+        "indicatorLines": _indicator_lines_to_json(bars, indicator_lines),
+        "movingAverages": (
+            _moving_average_overlay_to_legacy_json(bars, indicator_lines)
+            if strategy_id == "moving_average"
+            else []
+        ),
+    }
+
+
 def _build_backtest_payload(
     bars: pd.DataFrame,
     signals: pd.Series,
@@ -289,6 +671,7 @@ def _build_backtest_payload(
     provider: str,
     cached: bool,
     data_logs: list[str],
+    data_lineage: dict[str, Any],
     db_status: DatabaseStatus,
 ) -> dict[str, Any]:
     """把回测结果转换成前端稳定消费的 JSON 结构。"""
@@ -324,6 +707,11 @@ def _build_backtest_payload(
             "start": request.start,
             "end": request.end,
             "cached": cached,
+            "sourceDetail": data_lineage["sourceDetail"],
+            "dataVersion": data_lineage["dataVersion"],
+            "coverage": data_lineage["coverage"],
+            "engineVersion": data_lineage["engineVersion"],
+            "engineAssumptions": data_lineage["engineAssumptions"],
         },
         "database": _database_status_to_json(db_status),
         "metrics": _metrics_to_json(result.metrics, result.equity_curve, signals),
@@ -349,7 +737,7 @@ def _get_a_share_bars(
     start: str,
     end: str,
     adjust: str,
-) -> tuple[pd.DataFrame, str, bool, list[str]]:
+) -> tuple[pd.DataFrame, str, bool, list[str], dict[str, Any]]:
     """优先使用 AKShare 的完整缓存，未命中时下载并强制写入数据库。"""
 
     if not db_status.connected:
@@ -365,11 +753,26 @@ def _get_a_share_bars(
         end=end,
     )
     if cached_akshare is not None:
-        return cached_akshare, "AKShare", True, ["已从数据库读取 AKShare A股日线缓存"]
+        coverage = inspect_market_bar_coverage(
+            engine,
+            provider="AKShare",
+            symbol=symbol,
+            exchange=_exchange_for_symbol(symbol),
+            frequency="1d",
+            adjust=adjust,
+            start=start,
+            end=end,
+        )
+        lineage = _data_lineage_json(
+            source_detail="database cache",
+            data_version="cache:market_bars",
+            coverage=coverage.to_json(),
+        )
+        return cached_akshare, "AKShare", True, ["已从数据库读取 AKShare A股日线缓存"], lineage
 
     bars = download_akshare_bars(symbol=symbol, start=start, end=end, adjust=adjust)
     provider = "AKShare"
-    source_detail = bars.attrs.get("source_detail", "AKShare")
+    source_detail = str(bars.attrs.get("source_detail", "AKShare"))
     logs = [f"已通过 {source_detail} 读取 A股日线数据"]
 
     saved = save_market_bars(
@@ -383,7 +786,60 @@ def _get_a_share_bars(
         requested_end=end,
     )
     logs.append(f"已保存 {saved} 根日K线到数据库")
-    return bars, provider, False, logs
+    coverage = inspect_market_bar_coverage(
+        engine,
+        provider=provider,
+        symbol=symbol,
+        exchange=_exchange_for_symbol(symbol),
+        frequency="1d",
+        adjust=adjust,
+        start=start,
+        end=end,
+    )
+    lineage = _data_lineage_json(
+        source_detail=source_detail,
+        data_version=str(bars.attrs.get("data_version", "akshare:runtime")),
+        coverage=coverage.to_json(),
+    )
+    return bars, provider, False, logs, lineage
+
+
+def _data_lineage_json(
+    source_detail: str,
+    data_version: str,
+    coverage: dict[str, Any],
+) -> dict[str, Any]:
+    """生成回测结果使用的数据血缘摘要。"""
+
+    return {
+        "sourceDetail": source_detail,
+        "dataVersion": data_version,
+        "coverage": coverage,
+        "engineVersion": "signal-close-v1",
+        "engineAssumptions": _engine_assumptions_json(),
+    }
+
+
+def _engine_assumptions_json() -> dict[str, Any]:
+    """返回当前简化回测引擎的关键假设。"""
+
+    return {
+        "assetScope": "single_symbol",
+        "direction": "long_only",
+        "executionPrice": "same_bar_close",
+        "positionSizing": "all_in_or_flat",
+        "slippage": "none",
+        "marketRules": "t_plus_1_limit_and_suspend_rules_not_modelled",
+    }
+
+
+def _exchange_for_symbol(symbol: str) -> str:
+    """根据 A 股代码推断交易所。"""
+
+    normalized = symbol.strip().lower()
+    if normalized.startswith(("6", "sh")):
+        return "SSE"
+    return "SZSE"
 
 
 def _metrics_to_json(
