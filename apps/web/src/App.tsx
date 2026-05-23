@@ -110,6 +110,7 @@ export default function App() {
       : "editing";
   const isBacktestWorkspace = activeView !== "data" && activeView !== "strategies";
   const isResultWorkspace = isBacktestWorkspace && workspaceMode === "result";
+  const showPlatformOverview = activeView === "data" || activeView === "strategies";
 
   useEffect(() => {
     async function loadInitialState() {
@@ -347,8 +348,8 @@ export default function App() {
           hasResult={result != null}
         />
 
-        <div className={isResultWorkspace ? "workspace-body result-mode" : "workspace-body"}>
-          {isResultWorkspace ? null : <PlatformOverview capabilities={platformCapabilities} />}
+        <div className={showPlatformOverview ? "workspace-body" : "workspace-body result-mode"}>
+          {showPlatformOverview ? <PlatformOverview capabilities={platformCapabilities} /> : null}
 
           {activeView === "data" ? (
             <DataAssetsPage
@@ -438,10 +439,13 @@ export default function App() {
                     result={result}
                     currentJob={currentJob}
                   />
-                  <div className="empty-state">
-                    <h2>选择策略后运行回测</h2>
-                    <p>左侧选择策略模板、填写 A股代码和参数，主区域会展示 K线、策略指标、权益曲线和交易明细。</p>
-                  </div>
+                  <PreRunAnalysisPreview
+                    form={form}
+                    selectedStrategy={selectedStrategy}
+                    currentJob={currentJob}
+                    databaseReady={databaseReady}
+                    validationError={validationError}
+                  />
                 </>
               )}
             </section>
@@ -807,6 +811,95 @@ function ResearchWorkbench({
           <div>
             <span>累计收益</span>
             <strong>{result ? formatPercent(result.metrics.totalReturn) : "--"}</strong>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PreRunAnalysisPreview({
+  form,
+  selectedStrategy,
+  currentJob,
+  databaseReady,
+  validationError
+}: {
+  form: BacktestRequest;
+  selectedStrategy: StrategyDefinition | null;
+  currentJob: BacktestJob | null;
+  databaseReady: boolean;
+  validationError: string | null;
+}) {
+  const strategyName = selectedStrategy?.name ?? form.strategyId;
+  const readiness = validationError ? "待修正" : databaseReady ? "可运行" : "待连接";
+  const previewBars = [42, 58, 48, 66, 72, 54, 62, 84, 76, 92, 70, 82, 96, 88, 78, 90];
+
+  return (
+    <section className="pre-run-preview" data-testid="pre-run-preview" aria-label="回测预览画布">
+      <div className="preview-hero-row">
+        <div className="preview-heading">
+          <span>回测画布</span>
+          <strong>{form.symbol} · {strategyName}</strong>
+        </div>
+        <div className={`preview-readiness ${readiness === "可运行" ? "ready" : "pending"}`}>
+          {readiness}
+        </div>
+      </div>
+
+      <div className="preview-kpi-grid">
+        <div>
+          <span>区间</span>
+          <strong>{form.start} 至 {form.end}</strong>
+        </div>
+        <div>
+          <span>资金</span>
+          <strong>{Math.round(form.cash).toLocaleString("zh-CN")}</strong>
+        </div>
+        <div>
+          <span>手续费</span>
+          <strong>{form.commissionRate}</strong>
+        </div>
+        <div>
+          <span>任务</span>
+          <strong>{currentJob?.status ? jobStatusText(currentJob.status, false) : "未提交"}</strong>
+        </div>
+      </div>
+
+      <div className="preview-chart-panel">
+        <div className="preview-chart-toolbar">
+          <span>价格与信号</span>
+          <strong>{form.adjust}</strong>
+        </div>
+        <div className="preview-chart-grid">
+          <div className="preview-price-line" />
+          <div className="preview-candles" aria-hidden="true">
+            {previewBars.map((height, index) => (
+              <span
+                className={index % 5 === 0 ? "down" : "up"}
+                key={`${height}-${index}`}
+                style={{ height: `${height}px` }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="preview-bottom-grid">
+        <div className="preview-mini-panel">
+          <span>权益曲线</span>
+          <div className="preview-sparkline equity" />
+        </div>
+        <div className="preview-mini-panel">
+          <span>回撤诊断</span>
+          <div className="preview-sparkline drawdown" />
+        </div>
+        <div className="preview-mini-panel">
+          <span>成交明细</span>
+          <div className="preview-table-lines">
+            <i />
+            <i />
+            <i />
           </div>
         </div>
       </div>

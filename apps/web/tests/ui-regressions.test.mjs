@@ -231,6 +231,25 @@ test("editing workspace keeps dense columns while result mode prioritizes result
   assert.match(app, /: \(\s*<>\s*<ResearchWorkbench/);
 });
 
+test("editing workspace has a structured pre-run analysis preview", () => {
+  const app = read("src/App.tsx");
+  const styles = read("src/styles.css");
+
+  assert.match(app, /PreRunAnalysisPreview/);
+  assert.match(app, /data-testid="pre-run-preview"/);
+  assert.match(styles, /\.pre-run-preview/);
+  assert.match(styles, /\.preview-kpi-grid/);
+  assert.match(styles, /\.preview-chart-panel/);
+  assert.doesNotMatch(app, /<div className="empty-state">/);
+});
+
+test("backtest workspace does not show the platform overview strip", () => {
+  const app = read("src/App.tsx");
+
+  assert.match(app, /const showPlatformOverview = activeView === "data" \|\| activeView === "strategies"/);
+  assert.doesNotMatch(app, /isResultWorkspace \? null : <PlatformOverview/);
+});
+
 test("desktop dashboard keeps primary metrics scannable in one row", () => {
   const styles = read("src/styles.css");
 

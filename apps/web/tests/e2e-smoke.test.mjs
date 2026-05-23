@@ -24,7 +24,8 @@ test("dashboard renders with mocked API data in a real browser", { timeout: 9000
     await page.locator('[data-testid="lifecycle-rail"]').waitFor({ state: "visible" });
     await page.locator('[data-testid="research-workbench"]').waitFor({ state: "visible" });
     await page.locator('[data-testid="queue-simulation-panel"]').waitFor({ state: "visible" });
-    await page.locator('[data-testid="platform-overview"]').waitFor({ state: "visible" });
+    await page.locator('[data-testid="pre-run-preview"]').waitFor({ state: "visible" });
+    assert.equal(await page.locator('[data-testid="platform-overview"]').count(), 0);
     await page.locator(".run-button").waitFor({ state: "visible" });
     await page.locator(".run-button").click();
     await page.locator('[data-testid="job-status-panel"]').waitFor({ state: "visible" });
