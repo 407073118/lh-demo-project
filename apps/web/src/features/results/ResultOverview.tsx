@@ -30,8 +30,8 @@ export function ResultOverview({ result }: { result: BacktestResponse }) {
           </div>
         ))}
       </div>
-      <section className="panel metric-detail-panel">
-        <h2 className="panel-title">指标明细</h2>
+      <details className="panel metric-detail-panel metric-detail-disclosure">
+        <summary>指标明细</summary>
         <div className="compact-metric-grid">
           {secondaryItems.map(([label, value]) => (
             <div className="compact-metric" key={label}>
@@ -40,7 +40,7 @@ export function ResultOverview({ result }: { result: BacktestResponse }) {
             </div>
           ))}
         </div>
-      </section>
+      </details>
     </section>
   );
 }

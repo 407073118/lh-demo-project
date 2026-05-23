@@ -198,6 +198,10 @@ select {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+.workspace-body.result-mode {
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .lifecycle-rail {
   display: grid;
   align-content: start;
@@ -423,6 +427,12 @@ select {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(238, 243, 248, 0.42)),
     var(--color-bg);
+}
+
+.workspace.workspace-result {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "main";
+  min-height: calc(100vh - 58px);
 }
 
 .workspace::before {
@@ -694,6 +704,82 @@ select {
   background:
     linear-gradient(180deg, #ffffff 0%, #fbfcfe 70%, #f5f8fc 100%);
   box-shadow: 1px 0 0 rgba(255, 255, 255, 0.72) inset;
+}
+
+.workspace-result .config-drawer,
+.workspace-result .inspector-drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 30;
+  width: min(340px, calc(100vw - 24px));
+  max-width: 100%;
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-raised);
+  transition: transform 180ms ease, opacity 180ms ease;
+}
+
+.workspace-result .config-drawer {
+  left: 0;
+  transform: translateX(calc(-100% - 16px));
+}
+
+.workspace-result .inspector-drawer {
+  right: 0;
+  transform: translateX(calc(100% + 16px));
+}
+
+.workspace-result .config-drawer.open,
+.workspace-result .inspector-drawer.open {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.workspace-result .config-drawer:not(.open),
+.workspace-result .inspector-drawer:not(.open) {
+  display: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.drawer-header {
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -2px -2px 12px;
+  padding: 0 2px 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.drawer-header span,
+.drawer-header strong {
+  display: block;
+}
+
+.drawer-header span {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.drawer-header strong {
+  color: var(--color-text);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.drawer-close {
+  min-height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0 10px;
+  color: var(--color-text);
+  background: #ffffff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .right-inspector {
@@ -1313,6 +1399,97 @@ summary:focus-visible {
   gap: 14px;
 }
 
+.run-context-bar {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(0, 1.6fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 56px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(180deg, #ffffff 0%, var(--color-surface-data) 100%);
+  box-shadow: var(--shadow-panel);
+}
+
+.run-context-primary,
+.run-context-meta,
+.run-context-actions {
+  min-width: 0;
+}
+
+.run-context-primary strong,
+.run-context-primary span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-context-primary strong {
+  color: var(--color-text);
+  font-size: 16px;
+}
+
+.run-context-primary span {
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.run-context-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.run-context-meta span,
+.run-context-meta strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-context-meta strong {
+  flex: 0 0 auto;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--color-text);
+  background: var(--color-surface-muted);
+  font-size: 11px;
+}
+
+.run-context-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.run-context-actions button {
+  min-height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0 10px;
+  color: var(--color-text);
+  background: #ffffff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.run-context-actions button:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
 .run-summary-bar {
   display: grid;
   grid-template-columns: repeat(5, minmax(120px, 1fr));
@@ -1404,6 +1581,28 @@ summary:focus-visible {
   font-size: 22px;
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;
+}
+
+.metric-detail-disclosure {
+  margin-bottom: 0;
+}
+
+.metric-detail-disclosure summary {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text);
+  background:
+    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.metric-detail-disclosure:not([open]) summary {
+  border-bottom: 0;
 }
 
 .metric-item.positive strong {
@@ -1522,7 +1721,7 @@ summary:focus-visible {
   align-items: start;
 }
 
-@media (min-width: 1600px) {
+@media (min-width: 1920px) {
   .dashboard-chart-grid {
     grid-template-columns: minmax(0, 1.18fr) minmax(0, 0.82fr);
   }
@@ -1563,6 +1762,10 @@ summary:focus-visible {
 
 .chart-large {
   height: 430px;
+}
+
+.workspace-result .chart-large {
+  height: 500px;
 }
 
 .chart-small {
@@ -1852,6 +2055,12 @@ tbody tr:hover {
       "inspector";
   }
 
+  .workspace.workspace-result,
+  .workspace.workspace-result.has-result {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "main";
+  }
+
   .sidebar {
     border-right: 0;
     border-bottom: 1px solid var(--color-border);
@@ -1874,6 +2083,17 @@ tbody tr:hover {
     grid-template-columns: repeat(4, minmax(120px, 1fr));
     border-left: 0;
     border-top: 1px solid var(--color-border);
+  }
+
+  .run-context-bar {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .run-context-meta,
+  .run-context-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
   }
 
   .run-summary-bar,
@@ -1904,6 +2124,10 @@ tbody tr:hover {
 
   .chart-large {
     height: 390px;
+  }
+
+  .workspace-result .chart-large {
+    height: 440px;
   }
 }
 
@@ -1961,6 +2185,10 @@ tbody tr:hover {
     height: 340px;
   }
 
+  .workspace-result .chart-large {
+    height: 360px;
+  }
+
   .chart-small {
     height: 230px;
   }
@@ -2009,6 +2237,8 @@ tbody tr:hover {
   .global-product-nav button,
   .lifecycle-item,
   .workbench-actions button,
+  .drawer-close,
+  .run-context-actions button,
   .tab {
     min-height: 44px;
   }

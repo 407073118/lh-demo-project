@@ -37,12 +37,9 @@ test("dashboard renders with mocked API data in a real browser", { timeout: 9000
     await page.waitForFunction(() => document.querySelectorAll(".chart canvas").length > 0, undefined, { timeout: 15000 });
     const chartCanvasCount = await page.locator(".chart canvas").count();
     assert.ok(chartCanvasCount > 0, "expected ECharts to render at least one canvas");
-    const horizontalOverflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - document.documentElement.clientWidth
-    );
-    assert.ok(horizontalOverflow <= 1, `expected no horizontal page overflow, got ${horizontalOverflow}px`);
+    await assertResultLayout(page, 1366);
     const overflowingContainers = await page.evaluate(() =>
-      [".workspace", ".main-panel", ".right-inspector", ".result-dashboard", ".run-summary-bar", ".dashboard-chart-grid"]
+      [".workspace", ".main-panel", ".result-dashboard", ".run-context-bar", ".dashboard-chart-grid"]
         .flatMap((selector) => {
           const element = document.querySelector(selector);
           if (!element) {
@@ -59,6 +56,25 @@ test("dashboard renders with mocked API data in a real browser", { timeout: 9000
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: join(outputDir, "web-dashboard-smoke.png") });
 
+    await page.locator(".run-context-actions button").nth(1).click();
+    await page.locator(".right-inspector.open").waitFor({ state: "visible" });
+    await assertDrawerVisible(page, ".right-inspector.open");
+    await page.locator(".right-inspector .drawer-close").click();
+    await page.locator(".run-context-actions button").first().click();
+    await page.locator(".config-drawer.open").waitFor({ state: "visible" });
+    await assertDrawerVisible(page, ".config-drawer.open");
+    await page.locator(".config-drawer .drawer-close").click();
+
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await page.waitForTimeout(250);
+    await assertResultLayout(page, 1600);
+    await page.screenshot({ path: join(outputDir, "web-dashboard-1600-smoke.png") });
+
+    await page.setViewportSize({ width: 1920, height: 1080 });
+    await page.waitForTimeout(250);
+    await assertResultLayout(page, 1920);
+    await page.screenshot({ path: join(outputDir, "web-dashboard-1920-smoke.png") });
+
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForTimeout(250);
     const mobileOverflow = await page.evaluate(
@@ -74,6 +90,44 @@ test("dashboard renders with mocked API data in a real browser", { timeout: 9000
     await stopViteServer(server);
   }
 });
+
+async function assertResultLayout(page, width) {
+  const layout = await page.evaluate(() => {
+    const main = document.querySelector(".main-panel")?.getBoundingClientRect();
+    const inspectorElement = document.querySelector(".right-inspector");
+    const inspector = inspectorElement?.getBoundingClientRect();
+    const chart = document.querySelector(".chart-large")?.getBoundingClientRect();
+    const contextBar = document.querySelector(".run-context-bar")?.getBoundingClientRect();
+    const inspectorStyle = inspectorElement ? window.getComputedStyle(inspectorElement) : null;
+    return {
+      chartHeight: chart?.height ?? 0,
+      contextTop: contextBar?.top ?? 0,
+      horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      inspectorDisplay: inspectorStyle?.display ?? "missing",
+      inspectorLeft: inspector?.left ?? 0,
+      mainWidth: main?.width ?? 0,
+      viewportWidth: window.innerWidth
+    };
+  });
+
+  assert.ok(layout.horizontalOverflow <= 1, `expected no horizontal page overflow at ${width}px, got ${layout.horizontalOverflow}px`);
+  assert.ok(layout.contextTop < 130, `expected run context near the first viewport at ${width}px, got top ${layout.contextTop}px`);
+  assert.ok(layout.chartHeight >= 430, `expected readable primary chart at ${width}px, got ${layout.chartHeight}px`);
+  if (width < 1920) {
+    assert.ok(layout.mainWidth >= layout.viewportWidth - 90, `expected result main panel to use available width at ${width}px, got ${layout.mainWidth}px`);
+    assert.equal(layout.inspectorDisplay, "none", `expected result inspector to be closed at ${width}px`);
+  }
+}
+
+async function assertDrawerVisible(page, selector) {
+  const rect = await page.locator(selector).evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return { left: box.left, right: box.right, viewportWidth: window.innerWidth, width: box.width };
+  });
+
+  assert.ok(rect.width > 250, `expected drawer ${selector} to have useful width, got ${rect.width}px`);
+  assert.ok(rect.left < rect.viewportWidth && rect.right > 0, `expected drawer ${selector} in viewport, got ${JSON.stringify(rect)}`);
+}
 
 function startViteServer() {
   const command = `npm run dev -- --host 127.0.0.1 --port ${port} --strictPort`;

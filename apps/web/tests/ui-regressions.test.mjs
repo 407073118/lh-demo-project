@@ -179,7 +179,46 @@ test("platform console prioritizes analysis density over marketing cards", () =>
   assert.doesNotMatch(styles, /\.platform-module-card/);
 });
 
-test("backtest workspace avoids cramped fixed-width columns and prioritizes results", () => {
+test("backtest workspace has an explicit result-focused mode with drawers", () => {
+  const app = read("src/App.tsx");
+  const styles = read("src/styles.css");
+
+  assert.match(app, /type WorkspaceMode = "editing" \| "running" \| "result"/);
+  assert.match(app, /const workspaceMode: WorkspaceMode/);
+  assert.match(app, /configDrawerOpen/);
+  assert.match(app, /inspectorDrawer/);
+  assert.match(styles, /\.workspace\.workspace-result/);
+  assert.match(styles, /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(styles, /\.config-drawer/);
+  assert.match(styles, /\.inspector-drawer/);
+  assert.match(styles, /@media \(min-width:\s*1920px\)/);
+  assert.doesNotMatch(styles, /\.workspace\.workspace-result\s*\{[\s\S]*280px minmax\(0,\s*1fr\) 260px/);
+});
+
+test("result dashboard exposes a compact run context before charts", () => {
+  const dashboard = read("src/features/results/ResultDashboard.tsx");
+  const overview = read("src/features/results/ResultOverview.tsx");
+
+  assert.match(dashboard, /RunContextBar/);
+  assert.match(dashboard, /className="run-context-bar"/);
+  assert.match(dashboard, /onOpenConfig/);
+  assert.match(dashboard, /onOpenInspector/);
+  assert.match(overview, /metric-detail-disclosure/);
+  assert.match(overview, /<summary/);
+});
+
+test("design contract defines result-mode layout guardrails", () => {
+  const design = read("DESIGN.md");
+
+  assert.match(design, /result-focused/i);
+  assert.match(design, /Config Drawer/);
+  assert.match(design, /Inspector Drawer/);
+  assert.match(design, /chart-panel/);
+  assert.match(design, /1180px-1919px/);
+  assert.match(design, /1920px/);
+});
+
+test("editing workspace keeps dense columns while result mode prioritizes results", () => {
   const app = read("src/App.tsx");
   const styles = read("src/styles.css");
 

@@ -35,6 +35,7 @@ import {
   StrategyConfigSection,
   UniverseDataSection
 } from "./features/config/WorkbenchConfigSections";
+import { DataLineagePanel } from "./features/results/DataLineagePanel";
 import { ResultDashboard } from "./features/results/ResultDashboard";
 import { StrategyLibraryPage } from "./features/strategies/StrategyLibraryPage";
 import { formatPercent } from "./format";
@@ -68,6 +69,8 @@ const initialRequest: BacktestRequest = {
 
 type ConnectionState = "checking" | "online" | "offline";
 type WorkspaceView = "data" | "research" | "backtest" | "strategies" | "history";
+type WorkspaceMode = "editing" | "running" | "result";
+type InspectorDrawer = "job" | "history" | "lineage" | "trade" | null;
 
 export default function App() {
   const [connectionState, setConnectionState] = useState<ConnectionState>("checking");
@@ -90,6 +93,8 @@ export default function App() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [isLoadingRunDetail, setIsLoadingRunDetail] = useState(false);
   const [lastRunAt, setLastRunAt] = useState<string>("尚未运行");
+  const [configDrawerOpen, setConfigDrawerOpen] = useState(false);
+  const [inspectorDrawer, setInspectorDrawer] = useState<InspectorDrawer>(null);
 
   const selectedStrategy = useMemo(
     () => strategies.find((strategy) => strategy.id === form.strategyId) ?? null,
@@ -98,6 +103,13 @@ export default function App() {
   const hasDirtyParams = result ? JSON.stringify(form) !== JSON.stringify(result.strategy.params) : false;
   const databaseReady = databaseStatus?.connected === true;
   const visibleRecentRuns = useMemo(() => dedupeRecentRuns(recentRuns), [recentRuns]);
+  const workspaceMode: WorkspaceMode = isRunning || currentJob?.status === "running"
+    ? "running"
+    : result
+      ? "result"
+      : "editing";
+  const isBacktestWorkspace = activeView !== "data" && activeView !== "strategies";
+  const isResultWorkspace = isBacktestWorkspace && workspaceMode === "result";
 
   useEffect(() => {
     async function loadInitialState() {
@@ -253,6 +265,8 @@ export default function App() {
     setIsRunning(true);
     setError(null);
     setNotice(null);
+    setConfigDrawerOpen(false);
+    setInspectorDrawer("job");
     setCurrentJob({
       runId: "pending",
       status: "running",
@@ -270,9 +284,12 @@ export default function App() {
       setDatabaseStatus(payload.result.database);
       setSelectedRunId(payload.result.runId ?? null);
       setLastRunAt(new Date().toLocaleString("zh-CN", { hour12: false }));
+      setConfigDrawerOpen(false);
+      setInspectorDrawer(null);
       await refreshRecentRuns();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "回测运行失败");
+      setInspectorDrawer("job");
       setCurrentJob((job) =>
         job
           ? {
@@ -302,6 +319,8 @@ export default function App() {
       setForm(restoredResult.strategy.params);
       setLastRunAt(detail.summary.createdAt);
       setCurrentJob(jobFromRunSummary(detail.summary));
+      setConfigDrawerOpen(false);
+      setInspectorDrawer(null);
       setNotice("已加载历史运行；行情、指标和交易明细已恢复。");
     } catch (caught) {
       setError(normalizeHistoryRunError(caught));
@@ -322,13 +341,14 @@ export default function App() {
 
       <div className="workspace-shell">
         <LifecycleRail
+          activeView={activeView}
           currentJob={currentJob}
           databaseStatus={databaseStatus}
           hasResult={result != null}
         />
 
-        <div className="workspace-body">
-          <PlatformOverview capabilities={platformCapabilities} />
+        <div className={isResultWorkspace ? "workspace-body result-mode" : "workspace-body"}>
+          {isResultWorkspace ? null : <PlatformOverview capabilities={platformCapabilities} />}
 
           {activeView === "data" ? (
             <DataAssetsPage
@@ -349,8 +369,19 @@ export default function App() {
               }}
             />
           ) : (
-          <main className={result ? "workspace has-result" : "workspace"}>
-            <aside className="sidebar control-sidebar">
+          <main className={`workspace workspace-${workspaceMode}${result ? " has-result" : ""}`}>
+            <aside className={`sidebar control-sidebar config-drawer${configDrawerOpen ? " open" : ""}`}>
+              {isResultWorkspace ? (
+                <div className="drawer-header">
+                  <div>
+                    <span>参数配置</span>
+                    <strong>{form.symbol}</strong>
+                  </div>
+                  <button className="drawer-close" type="button" onClick={() => setConfigDrawerOpen(false)}>
+                    收起
+                  </button>
+                </div>
+              ) : null}
               <form onSubmit={handleSubmit}>
                 <UniverseDataSection form={form} setForm={setForm} />
                 <StrategyConfigSection
@@ -394,6 +425,9 @@ export default function App() {
                     volumeOption={volumeOption}
                     equityOption={equityOption}
                     runTimestamp={lastRunAt}
+                    runStatus={jobStatusText(currentJob?.status ?? "succeeded", isRunning)}
+                    onOpenConfig={() => setConfigDrawerOpen(true)}
+                    onOpenInspector={(drawer) => setInspectorDrawer(drawer)}
                   />
                 </>
               ) : (
@@ -412,23 +446,41 @@ export default function App() {
               )}
             </section>
 
-            <aside className="right-inspector">
-              <QueueSimulationPanel
-                currentJob={currentJob}
-                dataCatalog={dataCatalog}
-                isRunning={isRunning}
-                recentRuns={visibleRecentRuns}
-                result={result}
-              />
-              <DataCatalogPanel catalog={dataCatalog} />
-              <RecentRunsPanel
-                status={databaseStatus}
-                runs={visibleRecentRuns}
-                error={recentRunsError}
-                selectedRunId={selectedRunId}
-                isLoading={isLoadingRunDetail}
-                onOpenRun={openRunDetail}
-              />
+            <aside className={`right-inspector inspector-drawer${inspectorDrawer ? " open" : ""}`}>
+              {isResultWorkspace ? (
+                <div className="drawer-header">
+                  <div>
+                    <span>运行检查器</span>
+                    <strong>{inspectorDrawer ? inspectorDrawerLabel(inspectorDrawer) : "已收起"}</strong>
+                  </div>
+                  <button className="drawer-close" type="button" onClick={() => setInspectorDrawer(null)}>
+                    收起
+                  </button>
+                </div>
+              ) : null}
+              {isResultWorkspace && inspectorDrawer === "lineage" && result ? (
+                <DataLineagePanel result={result} />
+              ) : null}
+              {!isResultWorkspace || inspectorDrawer === "job" || inspectorDrawer == null ? (
+                <QueueSimulationPanel
+                  currentJob={currentJob}
+                  dataCatalog={dataCatalog}
+                  isRunning={isRunning}
+                  recentRuns={visibleRecentRuns}
+                  result={result}
+                />
+              ) : null}
+              {isResultWorkspace ? null : <DataCatalogPanel catalog={dataCatalog} />}
+              {!isResultWorkspace || inspectorDrawer === "history" ? (
+                <RecentRunsPanel
+                  status={databaseStatus}
+                  runs={visibleRecentRuns}
+                  error={recentRunsError}
+                  selectedRunId={selectedRunId}
+                  isLoading={isLoadingRunDetail}
+                  onOpenRun={openRunDetail}
+                />
+              ) : null}
             </aside>
           </main>
           )}
@@ -665,18 +717,21 @@ function PlatformHeader({
 }
 
 function LifecycleRail({
+  activeView,
   currentJob,
   databaseStatus,
   hasResult
 }: {
+  activeView: WorkspaceView;
   currentJob: BacktestJob | null;
   databaseStatus: DatabaseStatus | null;
   hasResult: boolean;
 }) {
+  const isBacktestActive = activeView === "backtest" || hasResult;
   const items = [
     { key: "data", label: "数据", detail: databaseStatus?.connected ? "已接入" : "待连接", state: databaseStatus?.connected ? "done" : "locked" },
-    { key: "research", label: "研究", detail: "笔记本", state: "active" },
-    { key: "backtest", label: "回测", detail: currentJob?.status === "succeeded" ? "已完成" : "任务", state: hasResult ? "done" : "active" },
+    { key: "research", label: "研究", detail: "笔记本", state: activeView === "research" && !isBacktestActive ? "active" : "done" },
+    { key: "backtest", label: "回测", detail: currentJob?.status === "succeeded" ? "已完成" : "任务", state: isBacktestActive ? "active" : "done" },
     { key: "simulate", label: "模拟", detail: "队列", state: currentJob ? "active" : "locked" },
     { key: "live", label: "实盘", detail: "未启用", state: "locked" }
   ];
@@ -856,6 +911,19 @@ function moduleStatusText(status: "available" | "preview" | "planned"): string {
   return "规划";
 }
 
+function inspectorDrawerLabel(drawer: Exclude<InspectorDrawer, null>): string {
+  if (drawer === "job") {
+    return "任务状态";
+  }
+  if (drawer === "history") {
+    return "近期回测";
+  }
+  if (drawer === "lineage") {
+    return "数据血缘";
+  }
+  return "成交详情";
+}
+
 function DataSourcePanel({ status }: { status: DatabaseStatus | null }) {
   return (
     <section className="sidebar-info">
@@ -1013,6 +1081,10 @@ function RecentRunsPanel({
 function buildCandlestickOption(result: BacktestResponse): EChartsCoreOption {
   const dates = result.bars.map((bar) => bar.datetime);
   const kline = result.bars.map((bar) => [bar.open, bar.close, bar.low, bar.high]);
+  const volume = result.bars.map((bar) => ({
+    value: bar.volume,
+    itemStyle: { color: bar.close >= bar.open ? CHART_COLORS.marketUp : CHART_COLORS.marketDown }
+  }));
   const buys = result.signals
     .filter((item) => item.signal === 1)
     .map((item) => [item.datetime, item.price]);
@@ -1023,6 +1095,8 @@ function buildCandlestickOption(result: BacktestResponse): EChartsCoreOption {
     name: line.name,
     type: "line",
     data: line.points.map((point) => point.value),
+    xAxisIndex: 0,
+    yAxisIndex: 0,
     smooth: true,
     showSymbol: false,
     lineStyle: { width: 1.5, color: line.color }
@@ -1032,16 +1106,30 @@ function buildCandlestickOption(result: BacktestResponse): EChartsCoreOption {
     animation: false,
     aria: { enabled: true },
     tooltip: { trigger: "axis", axisPointer: { type: "cross" } },
-    legend: { top: 0, data: ["K线", ...result.indicatorLines.map((line) => line.name), "买入", "卖出"] },
-    grid: { left: 56, right: 24, top: 36, bottom: 52 },
-    dataZoom: [{ type: "inside" }, { type: "slider", height: 22, bottom: 14 }],
-    xAxis: { type: "category", data: dates, boundaryGap: true, axisLine: { lineStyle: { color: CHART_COLORS.axis } } },
-    yAxis: { scale: true, axisLine: { lineStyle: { color: CHART_COLORS.axis } }, splitLine: { lineStyle: { color: CHART_COLORS.splitLine } } },
+    legend: { top: 0, data: ["K线", ...result.indicatorLines.map((line) => line.name), "买入", "卖出", "成交量"] },
+    grid: [
+      { left: 56, right: 24, top: 36, height: "58%" },
+      { left: 56, right: 24, bottom: 52, height: "18%" }
+    ],
+    dataZoom: [
+      { type: "inside", xAxisIndex: [0, 1] },
+      { type: "slider", xAxisIndex: [0, 1], height: 22, bottom: 14 }
+    ],
+    xAxis: [
+      { type: "category", data: dates, boundaryGap: true, axisLine: { lineStyle: { color: CHART_COLORS.axis } } },
+      { type: "category", gridIndex: 1, data: dates, boundaryGap: true, axisLabel: { show: false }, axisTick: { show: false } }
+    ],
+    yAxis: [
+      { scale: true, axisLine: { lineStyle: { color: CHART_COLORS.axis } }, splitLine: { lineStyle: { color: CHART_COLORS.splitLine } } },
+      { gridIndex: 1, splitNumber: 2, axisLine: { lineStyle: { color: CHART_COLORS.axis } }, splitLine: { lineStyle: { color: CHART_COLORS.splitLine } } }
+    ],
     series: [
       {
         name: "K线",
         type: "candlestick",
         data: kline,
+        xAxisIndex: 0,
+        yAxisIndex: 0,
         itemStyle: {
           color: CHART_COLORS.marketUp,
           color0: CHART_COLORS.marketDown,
@@ -1050,8 +1138,9 @@ function buildCandlestickOption(result: BacktestResponse): EChartsCoreOption {
         }
       },
       ...indicatorSeries,
-      { name: "买入", type: "scatter", data: buys, symbol: "triangle", symbolSize: 11, itemStyle: { color: CHART_COLORS.marketUp } },
-      { name: "卖出", type: "scatter", data: sells, symbol: "triangle", symbolRotate: 180, symbolSize: 11, itemStyle: { color: CHART_COLORS.marketDown } }
+      { name: "买入", type: "scatter", data: buys, xAxisIndex: 0, yAxisIndex: 0, symbol: "triangle", symbolSize: 11, itemStyle: { color: CHART_COLORS.marketUp } },
+      { name: "卖出", type: "scatter", data: sells, xAxisIndex: 0, yAxisIndex: 0, symbol: "triangle", symbolRotate: 180, symbolSize: 11, itemStyle: { color: CHART_COLORS.marketDown } },
+      { name: "成交量", type: "bar", data: volume, xAxisIndex: 1, yAxisIndex: 1, barWidth: "58%" }
     ]
   };
 }
@@ -1084,15 +1173,21 @@ function buildEquityOption(result: BacktestResponse): EChartsCoreOption {
     aria: { enabled: true },
     tooltip: { trigger: "axis" },
     legend: { top: 0, data: ["权益", "回撤"] },
-    grid: { left: 58, right: 48, top: 36, bottom: 30 },
-    xAxis: { type: "category", data: dates, axisLabel: { hideOverlap: true } },
+    grid: [
+      { left: 58, right: 36, top: 36, height: "48%" },
+      { left: 58, right: 36, bottom: 32, height: "28%" }
+    ],
+    xAxis: [
+      { type: "category", data: dates, axisLabel: { hideOverlap: true } },
+      { type: "category", gridIndex: 1, data: dates, axisLabel: { hideOverlap: true } }
+    ],
     yAxis: [
       { type: "value", scale: true, splitLine: { lineStyle: { color: CHART_COLORS.splitLine } } },
-      { type: "value", axisLabel: { formatter: "{value}%" }, splitLine: { show: false } }
+      { type: "value", gridIndex: 1, axisLabel: { formatter: "{value}%" }, splitLine: { lineStyle: { color: CHART_COLORS.splitLine } } }
     ],
     series: [
-      { name: "权益", type: "line", data: equity, showSymbol: false, lineStyle: { width: 2, color: CHART_COLORS.equity } },
-      { name: "回撤", type: "line", yAxisIndex: 1, data: drawdown, showSymbol: false, areaStyle: { opacity: 0.12 }, lineStyle: { width: 1.5, color: CHART_COLORS.marketDown } }
+      { name: "权益", type: "line", data: equity, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, lineStyle: { width: 2, color: CHART_COLORS.equity } },
+      { name: "回撤", type: "line", xAxisIndex: 1, yAxisIndex: 1, data: drawdown, showSymbol: false, areaStyle: { opacity: 0.12 }, lineStyle: { width: 1.5, color: CHART_COLORS.marketDown } }
     ]
   };
 }

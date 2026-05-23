@@ -56,6 +56,13 @@ spacing:
   shell: 12px
   panel: 14px
   dense: 6px
+  gutter: 12px
+  panel-gap: 14px
+  chart-min-height: 430px
+  summary-row-height: 56px
+  sidebar-width: 280px
+  inspector-width: 260px
+  rail-width: 68px
 components:
   panel:
     backgroundColor: "{colors.surface}"
@@ -72,6 +79,34 @@ components:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.text}"
     rounded: "{rounded.md}"
+  run-context-bar:
+    backgroundColor: "{colors.surface-data}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.md}"
+    height: "{spacing.summary-row-height}"
+    padding: 8px 12px
+  metric-tile:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.md}"
+    height: 78px
+    padding: 12px 14px
+  chart-panel:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.md}"
+    height: "{spacing.chart-min-height}"
+    padding: 0px
+  inspector-panel:
+    backgroundColor: "{colors.surface-muted}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.md}"
+    width: "{spacing.inspector-width}"
+  control-sidebar:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.sm}"
+    width: "{spacing.sidebar-width}"
 ---
 
 ## Overview
@@ -90,12 +125,20 @@ Chinese UI copy uses a CJK system sans stack for reliable rendering. Numeric dat
 
 The default desktop layout is a three-pane console: left configuration, center analysis, right job/data/history inspector. The rail and top nav are persistent. Panels should align to an 8px grid, keep 8px radius or below, and favor borders over decorative shadows. Background texture may use subtle gridlines to reinforce the research-console feel.
 
+Backtest results must use a result-focused layout. Once a run exists, the center analysis canvas takes priority over keeping every operational panel visible. The result page starts with a compact run-context-bar, then metric-tile KPI ribbon, then chart-panel surfaces. Config Drawer and Inspector Drawer are auxiliary surfaces, not permanent columns.
+
+Breakpoint rules are explicit: at 1920px and wider, the result workspace may pin an inspector if the main chart remains wide; from 1180px-1919px, only the main result canvas is persistent and side surfaces open as drawers; below 1180px, the result content comes first and auxiliary surfaces remain secondary. The K-line chart is the primary result view and should keep at least 70% of its chart-panel visible in the first desktop viewport.
+
 ## Components
 
 Panels, metric tiles, data tables, segmented controls, and pills should be visually related: thin borders, muted headers, compact labels, and clear active states. Tables and charts are first-class surfaces; avoid card nesting and ornamental blocks. Empty states should be brief and operational.
+
+The run-context-bar carries symbol, strategy, range, provider, run id, status, and lightweight actions. Metric-tile is for decision metrics only. Chart-panel is for K-line, volume, equity, and drawdown visuals and must not be squeezed by data catalogs or completed job metadata. Inspector-panel may show job, history, trade, or lineage details only after the user opens the Inspector Drawer.
 
 ## Do's and Don'ts
 
 Do keep charts, metrics, and run metadata immediately scannable. Do use red/green only for market meaning. Do keep controls dense but touch-safe on coarse pointers.
 
-Don't use large hero sections, rounded marketing cards, decorative blobs, one-note gradients, or colorful left-rail accents. Don't hide core analysis behind top-level tabs when the user has already run a backtest.
+Do collapse or demote completed-state side panels once a backtest result exists. Do keep only one persistent auxiliary surface beside the main analysis below 1920px. Do treat readable chart width and first-viewport chart visibility as layout requirements, not nice-to-have polish.
+
+Don't use large hero sections, rounded marketing cards, decorative blobs, one-note gradients, or colorful left-rail accents. Don't hide core analysis behind top-level tabs when the user has already run a backtest. Don't let data catalog, recent runs, simulation placeholders, or completed job metadata compete with active result analysis.

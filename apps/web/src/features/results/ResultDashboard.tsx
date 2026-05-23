@@ -15,6 +15,9 @@ type ResultDashboardProps = {
   volumeOption: EChartsCoreOption | null;
   equityOption: EChartsCoreOption | null;
   runTimestamp: string;
+  runStatus?: string;
+  onOpenConfig?: () => void;
+  onOpenInspector?: (drawer: "job" | "history" | "lineage" | "trade") => void;
 };
 
 type DetailView = "trades" | "chartData" | "logs" | "lineage";
@@ -24,11 +27,20 @@ export function ResultDashboard({
   candlestickOption,
   volumeOption,
   equityOption,
-  runTimestamp
+  runTimestamp,
+  runStatus = "完成",
+  onOpenConfig,
+  onOpenInspector
 }: ResultDashboardProps) {
   return (
     <div className="result-dashboard" data-testid="result-dashboard">
-      <RunSummaryBar result={result} runTimestamp={runTimestamp} />
+      <RunContextBar
+        result={result}
+        runTimestamp={runTimestamp}
+        runStatus={runStatus}
+        onOpenConfig={onOpenConfig}
+        onOpenInspector={onOpenInspector}
+      />
       <ResultOverview result={result} />
       <div className="dashboard-chart-grid">
         <PriceSignalPanel candlestickOption={candlestickOption} volumeOption={volumeOption} />
@@ -39,36 +51,37 @@ export function ResultDashboard({
   );
 }
 
-function RunSummaryBar({
+function RunContextBar({
   result,
-  runTimestamp
+  runTimestamp,
+  runStatus,
+  onOpenConfig,
+  onOpenInspector
 }: {
   result: BacktestResponse;
   runTimestamp: string;
+  runStatus: string;
+  onOpenConfig?: () => void;
+  onOpenInspector?: (drawer: "job" | "history" | "lineage" | "trade") => void;
 }) {
   return (
-    <section className="run-summary-bar" aria-label="运行快照">
-      <div>
-        <span>策略</span>
-        <strong>{result.strategy.name}</strong>
+    <section className="run-context-bar" aria-label="运行上下文">
+      <div className="run-context-primary">
+        <strong>{result.symbol}</strong>
+        <span>{result.strategy.name}</span>
       </div>
-      <div>
-        <span>数据源</span>
-        <strong>{result.dataSource.provider}</strong>
+      <div className="run-context-meta">
+        <span>{result.dataSource.start} 至 {result.dataSource.end}</span>
+        <span>{result.dataSource.provider} · {result.dataSource.adjust}</span>
+        <span title={result.runId ?? "未落库"}>{result.runId ?? "未落库"}</span>
+        <span>{runTimestamp}</span>
+        <strong>{runStatus}</strong>
       </div>
-      <div>
-        <span>区间</span>
-        <strong>
-          {result.dataSource.start} 至 {result.dataSource.end}
-        </strong>
-      </div>
-      <div>
-        <span>运行编号</span>
-        <strong>{result.runId ?? "未落库"}</strong>
-      </div>
-      <div>
-        <span>最近运行</span>
-        <strong>{runTimestamp}</strong>
+      <div className="run-context-actions" aria-label="结果操作">
+        <button type="button" onClick={onOpenConfig}>参数</button>
+        <button type="button" onClick={() => onOpenInspector?.("job")}>任务</button>
+        <button type="button" onClick={() => onOpenInspector?.("history")}>历史</button>
+        <button type="button" onClick={() => onOpenInspector?.("lineage")}>血缘</button>
       </div>
     </section>
   );
