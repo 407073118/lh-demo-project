@@ -50,6 +50,21 @@ test("design styles expose tokens, keyboard focus, and mobile touch target rules
   assert.match(styles, /min-height:\s*44px/);
 });
 
+test("frontend has a documented institutional quant console design system", () => {
+  const design = read("DESIGN.md");
+  const styles = read("src/styles.css");
+
+  assert.match(design, /name:\s*Institutional Quant Console/);
+  assert.match(design, /--color-platform-rail/);
+  assert.match(design, /high-density research console/i);
+  assert.match(styles, /--color-gridline/);
+  assert.match(styles, /--color-buy/);
+  assert.match(styles, /--color-sell/);
+  assert.match(styles, /--shadow-panel/);
+  assert.match(styles, /--font-mono/);
+  assert.match(styles, /\.workspace::before/);
+});
+
 test("charts are accessible and lazy-load the charting library", () => {
   const chart = read("src/EChart.tsx");
 

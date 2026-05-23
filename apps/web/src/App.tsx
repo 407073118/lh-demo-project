@@ -49,7 +49,7 @@ const defaultStrategyParams: StrategyParams = {
 
 const CHART_COLORS = {
   axis: "#8A95A6",
-  splitLine: "#E8EDF2",
+  splitLine: "#E6EDF5",
   equity: "#1F6FEB",
   marketUp: "#C92A1F",
   marketDown: "#027A48"

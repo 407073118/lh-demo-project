@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.engine import URL, make_url
 
 from lh_quant.storage.schema import metadata
@@ -42,6 +42,7 @@ def initialize_database(engine: Engine) -> DatabaseStatus:
     if url.get_backend_name() in {"mysql", "mariadb"}:
         _ensure_mysql_database(url)
     metadata.create_all(engine)
+    _add_missing_nullable_columns(engine)
     return DatabaseStatus(
         connected=True,
         url=_mask_database_url(str(engine.url)),
@@ -77,6 +78,32 @@ def _ensure_mysql_database(url: URL) -> None:
                 "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
             )
         )
+
+
+def _add_missing_nullable_columns(engine: Engine) -> None:
+    """当本地表结构落后于 metadata 时，补充向后兼容的可空列。"""
+
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    preparer = engine.dialect.identifier_preparer
+    with engine.begin() as connection:
+        for table in metadata.sorted_tables:
+            if table.name not in existing_tables:
+                continue
+            existing_columns = {column["name"] for column in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing_columns:
+                    continue
+                if not column.nullable:
+                    raise RuntimeError(
+                        f"Existing table {table.name} is missing non-nullable column {column.name}"
+                    )
+                table_name = preparer.quote(table.name)
+                column_name = preparer.quote(column.name)
+                column_type = column.type.compile(dialect=engine.dialect)
+                connection.execute(
+                    text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type} NULL")
+                )
 
 
 def _server_url_without_database(url: URL) -> URL:

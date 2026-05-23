@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from sqlalchemy import update
+from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
 from lh_quant.backtest.engine import run_signal_backtest
@@ -170,6 +171,49 @@ def test_mysql_server_url_removes_database_before_create_database() -> None:
     assert server_url.database == ""
     assert "/lh_quant" not in str(server_url)
     assert "charset=utf8mb4" in str(server_url)
+
+
+def test_initialize_database_adds_missing_nullable_columns_to_existing_tables(
+    tmp_path: Path,
+) -> None:
+    engine = create_database_engine(f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE backtest_runs (
+                    run_id VARCHAR(64) PRIMARY KEY,
+                    symbol VARCHAR(32) NOT NULL,
+                    strategy_id VARCHAR(64) NOT NULL,
+                    strategy_name VARCHAR(128) NOT NULL,
+                    provider VARCHAR(64) NOT NULL,
+                    start_date DATE NOT NULL,
+                    end_date DATE NOT NULL,
+                    params JSON NOT NULL,
+                    metrics JSON NOT NULL,
+                    logs JSON NOT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+
+    initialize_database(engine)
+
+    with engine.begin() as connection:
+        columns = {
+            row["name"]
+            for row in connection.execute(text("PRAGMA table_info(backtest_runs)")).mappings()
+        }
+
+    assert {
+        "data_source_detail",
+        "data_version",
+        "strategy_version",
+        "engine_version",
+        "engine_assumptions",
+        "run_inputs",
+    } <= columns
 
 
 def test_storage_saves_backtest_run_summary(tmp_path: Path) -> None:
