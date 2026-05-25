@@ -848,7 +848,7 @@ function RunSetupPanel({
         </div>
       ) : (
         <div className="run-panel-header">
-          <span>Run Setup</span>
+          <span>运行设置</span>
           <strong>{selectedStrategy?.name ?? form.strategyId}</strong>
         </div>
       )}
@@ -982,15 +982,15 @@ function RunOutputPanel({
   return (
     <section className="run-output-panel" data-testid="run-output-panel" aria-label="运行输出">
       <div className="output-tab-strip">
-        <button className="active" type="button">Console</button>
-        <button type="button">Results</button>
-        <button type="button">Logs</button>
-        <button type="button">Artifacts</button>
+        <button className="active" type="button">控制台</button>
+        <button type="button">结果</button>
+        <button type="button">日志</button>
+        <button type="button">产物</button>
       </div>
 
       <div className="output-empty-state">
         <div className="output-console-copy">
-          <span>Backtest queue</span>
+          <span>回测队列</span>
           <strong>{statusText}</strong>
           <pre>{[
             `strategy: ${strategyName}`,

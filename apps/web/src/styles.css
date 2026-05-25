@@ -805,6 +805,8 @@ select {
 
 .ide-file-list span {
   cursor: default;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .ide-tree-list button:hover,
@@ -2209,16 +2211,16 @@ tbody tr:hover {
   .workspace {
     grid-template-columns: 1fr;
     grid-template-areas:
-      "sidebar"
       "main"
-      "inspector";
+      "inspector"
+      "sidebar";
   }
 
   .workspace.has-result {
     grid-template-areas:
       "main"
-      "sidebar"
-      "inspector";
+      "inspector"
+      "sidebar";
   }
 
   .workspace.workspace-result,

@@ -251,6 +251,17 @@ test("editing workspace uses IDE output tabs instead of a fake pre-run chart pre
   assert.doesNotMatch(app, /<div className="empty-state">/);
 });
 
+test("quant IDE chrome is visually aligned and prioritizes the editor on narrow screens", () => {
+  const app = read("src/App.tsx");
+  const styles = read("src/styles.css");
+
+  assert.match(app, /运行设置/);
+  assert.match(app, /控制台/);
+  assert.match(app, /回测队列/);
+  assert.match(styles, /\.ide-file-list span\s*\{[\s\S]*font-size:\s*13px/);
+  assert.match(styles, /@media \(max-width: 1180px\)[\s\S]*grid-template-areas:\s*"main"\s*"inspector"\s*"sidebar"/);
+});
+
 test("backtest workspace does not show the platform overview strip", () => {
   const app = read("src/App.tsx");
 
