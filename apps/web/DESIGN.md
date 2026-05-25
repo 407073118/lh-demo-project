@@ -3,7 +3,6 @@ version: alpha
 name: Institutional Quant Console
 description: A high-density research console for LH Quant, tuned for A-share backtesting, auditability, and repeated analysis.
 colors:
-  platform-rail: "#0b1220"
   platform-nav: "#172033"
   platform-ink: "#101828"
   background: "#eef3f8"
@@ -60,9 +59,8 @@ spacing:
   panel-gap: 14px
   chart-min-height: 430px
   summary-row-height: 56px
-  sidebar-width: 280px
-  inspector-width: 260px
-  rail-width: 68px
+  resource-sidebar-width: 240px
+  inspector-width: 320px
 components:
   panel:
     backgroundColor: "{colors.surface}"
@@ -102,20 +100,30 @@ components:
     textColor: "{colors.text}"
     rounded: "{rounded.md}"
     width: "{spacing.inspector-width}"
-  control-sidebar:
+  ide-resource-sidebar:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
+    rounded: 0px
+    width: "{spacing.resource-sidebar-width}"
+  run-setup-panel:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.text}"
     rounded: "{rounded.sm}"
-    width: "{spacing.sidebar-width}"
+    width: "{spacing.inspector-width}"
+  run-output-panel:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text}"
+    rounded: "{rounded.md}"
+    padding: 0px
 ---
 
 ## Overview
 
-Institutional Quant Console is a high-density research console rather than a marketing interface. It should feel like a focused quant terminal: compact navigation, quiet panels, precise tables, chart-first analysis, and persistent status surfaces. The screen must support repeated use without visual fatigue.
+Institutional Quant Console is a high-density research IDE rather than a marketing interface or a generic admin form. It should feel close to mature quant workbenches: compact navigation, a resource tree, code/notebook surfaces, explicit run setup, chart-first analysis after execution, and persistent status in the platform header. The screen must support repeated research loops without visual fatigue.
 
 ## Colors
 
-Use deep navy for the persistent platform chrome (`--color-platform-rail`, `--color-platform-nav`, `--color-platform-ink`) and pale gray-blue for the workbench background. White panels carry data. Blue is reserved for primary actions, selection, progress, and equity lines. A-share market semantics are fixed: red means buy/up and green means sell/down.
+Use deep navy for the persistent platform chrome (`--color-platform-nav`, `--color-platform-ink`) and editor surfaces, and pale gray-blue for the workbench background. White panels carry inputs and data. Blue is reserved for primary actions, selection, progress, and equity lines. A-share market semantics are fixed: red means buy/up and green means sell/down.
 
 ## Typography
 
@@ -123,7 +131,9 @@ Chinese UI copy uses a CJK system sans stack for reliable rendering. Numeric dat
 
 ## Layout
 
-The default desktop layout is a three-pane console: left configuration, center analysis, right job/data/history inspector. The rail and top nav are persistent. Panels should align to an 8px grid, keep 8px radius or below, and favor borders over decorative shadows. Background texture may use subtle gridlines to reinforce the research-console feel.
+The default desktop layout is a three-pane quant IDE: left resource sidebar, center editor/output or result canvas, right run setup panel. The top nav is persistent; the lifecycle rail is not persistent in the workbench. Panels should align to an 8px grid, keep 8px radius or below, and favor borders over decorative shadows. Background texture may use subtle gridlines to reinforce the research-console feel.
+
+Editing mode must prioritize the strategy editor. The left sidebar lists strategies, files, and recent runs; it does not contain the full parameter form. The center column shows the code/notebook surface and operational output tabs. The right panel owns symbol, date range, strategy parameters, cash, fees, and run submission.
 
 Backtest results must use a result-focused layout. Once a run exists, the center analysis canvas takes priority over keeping every operational panel visible. The result page starts with a compact run-context-bar, then metric-tile KPI ribbon, then chart-panel surfaces. Config Drawer and Inspector Drawer are auxiliary surfaces, not permanent columns.
 
@@ -131,9 +141,11 @@ Breakpoint rules are explicit: at 1920px and wider, the result workspace may pin
 
 ## Components
 
-Panels, metric tiles, data tables, segmented controls, and pills should be visually related: thin borders, muted headers, compact labels, and clear active states. Tables and charts are first-class surfaces; avoid card nesting and ornamental blocks. Empty states should be brief and operational.
+Panels, metric tiles, data tables, segmented controls, file-tree rows, output tabs, and pills should be visually related: thin borders, muted headers, compact labels, and clear active states. Tables, charts, code, and logs are first-class surfaces; avoid card nesting and ornamental blocks. Empty states should be brief and operational.
 
 The run-context-bar carries symbol, strategy, range, provider, run id, status, and lightweight actions. Metric-tile is for decision metrics only. Chart-panel is for K-line, volume, equity, and drawdown visuals and must not be squeezed by data catalogs or completed job metadata. Inspector-panel may show job, history, trade, or lineage details only after the user opens the Inspector Drawer.
+
+The run-output-panel replaces fake pre-run chart previews. Before execution it should show console-style run context, result/log/artifact tabs, and readiness diagnostics. It must not imply real market analysis before a backtest has actually run.
 
 ## Do's and Don'ts
 
@@ -141,4 +153,4 @@ Do keep charts, metrics, and run metadata immediately scannable. Do use red/gree
 
 Do collapse or demote completed-state side panels once a backtest result exists. Do keep only one persistent auxiliary surface beside the main analysis below 1920px. Do treat readable chart width and first-viewport chart visibility as layout requirements, not nice-to-have polish.
 
-Don't use large hero sections, rounded marketing cards, decorative blobs, one-note gradients, or colorful left-rail accents. Don't hide core analysis behind top-level tabs when the user has already run a backtest. Don't let data catalog, recent runs, simulation placeholders, or completed job metadata compete with active result analysis.
+Don't use large hero sections, rounded marketing cards, decorative blobs, one-note gradients, fake chart previews, or colorful rail accents. Don't hide core analysis behind top-level tabs when the user has already run a backtest. Don't let data catalog, recent runs, simulation placeholders, or completed job metadata compete with active result analysis.

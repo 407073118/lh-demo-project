@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
+import type { Dispatch, FormEvent, SetStateAction } from "react";
 import type { EChartsCoreOption } from "echarts/core";
 import type {
   BacktestJob,
@@ -341,13 +341,6 @@ export default function App() {
       />
 
       <div className="workspace-shell">
-        <LifecycleRail
-          activeView={activeView}
-          currentJob={currentJob}
-          databaseStatus={databaseStatus}
-          hasResult={result != null}
-        />
-
         <div className={showPlatformOverview ? "workspace-body" : "workspace-body result-mode"}>
           {showPlatformOverview ? <PlatformOverview capabilities={platformCapabilities} /> : null}
 
@@ -370,54 +363,19 @@ export default function App() {
               }}
             />
           ) : (
-          <main className={`workspace workspace-${workspaceMode}${result ? " has-result" : ""}`}>
-            <aside className={`sidebar control-sidebar config-drawer${configDrawerOpen ? " open" : ""}`}>
-              {isResultWorkspace ? (
-                <div className="drawer-header">
-                  <div>
-                    <span>参数配置</span>
-                    <strong>{form.symbol}</strong>
-                  </div>
-                  <button className="drawer-close" type="button" onClick={() => setConfigDrawerOpen(false)}>
-                    收起
-                  </button>
-                </div>
-              ) : null}
-              <form onSubmit={handleSubmit}>
-                <UniverseDataSection form={form} setForm={setForm} />
-                <StrategyConfigSection
-                  strategies={strategies}
-                  selectedStrategy={selectedStrategy}
-                  strategyId={form.strategyId}
-                  strategyParams={form.strategyParams}
-                  onStrategyChange={handleStrategyChange}
-                  onParamChange={updateStrategyParam}
-                />
-                <RiskExecutionSection form={form} setForm={setForm} />
+          <main className={`workspace quant-ide workspace-${workspaceMode}${result ? " has-result" : ""}`} data-testid="quant-ide-workspace">
+            <QuantIdeResourceSidebar
+              strategies={strategies}
+              selectedStrategyId={form.strategyId}
+              recentRuns={visibleRecentRuns}
+              recentRunsError={recentRunsError}
+              selectedRunId={selectedRunId}
+              isLoadingRunDetail={isLoadingRunDetail}
+              onSelectStrategy={handleStrategyChange}
+              onOpenRun={openRunDetail}
+            />
 
-                {validationError ? <div className="form-error" role="alert">{validationError}</div> : null}
-                {error ? <div className="form-error" role="alert">{error}</div> : null}
-                {notice ? <div className="form-info" role="status">{notice}</div> : null}
-                {blockingMessage ? <div className="form-warning" role="status">{blockingMessage}</div> : null}
-                {hasDirtyParams ? <div className="form-warning" role="status">参数已修改，请重新运行回测</div> : null}
-
-                <button className="run-button" disabled={!canRun}>
-                  {isRunning
-                    ? "回测中..."
-                    : strategies.length === 0
-                      ? "加载策略"
-                      : !databaseReady
-                        ? "等待数据库"
-                        : "运行回测"}
-                </button>
-
-                <p className="risk-note">回测结果基于历史数据，不构成投资建议。</p>
-              </form>
-
-              <DataSourcePanel status={databaseStatus} />
-            </aside>
-
-            <section className="main-panel">
+            <section className="main-panel ide-workbench" data-testid="ide-workbench">
               {result ? (
                 <>
                   <ResultDashboard
@@ -439,7 +397,7 @@ export default function App() {
                     result={result}
                     currentJob={currentJob}
                   />
-                  <PreRunAnalysisPreview
+                  <RunOutputPanel
                     form={form}
                     selectedStrategy={selectedStrategy}
                     currentJob={currentJob}
@@ -450,6 +408,33 @@ export default function App() {
               )}
             </section>
 
+            <RunSetupPanel
+              canRun={canRun}
+              blockingMessage={blockingMessage}
+              configDrawerOpen={configDrawerOpen}
+              currentJob={currentJob}
+              dataCatalog={dataCatalog}
+              databaseReady={databaseReady}
+              databaseStatus={databaseStatus}
+              error={error}
+              form={form}
+              hasDirtyParams={hasDirtyParams}
+              isResultWorkspace={isResultWorkspace}
+              isRunning={isRunning}
+              notice={notice}
+              recentRuns={visibleRecentRuns}
+              result={result}
+              selectedStrategy={selectedStrategy}
+              setConfigDrawerOpen={setConfigDrawerOpen}
+              setForm={setForm}
+              strategies={strategies}
+              validationError={validationError}
+              onParamChange={updateStrategyParam}
+              onSubmit={handleSubmit}
+              onStrategyChange={handleStrategyChange}
+            />
+
+            {isResultWorkspace ? (
             <aside className={`right-inspector inspector-drawer${inspectorDrawer ? " open" : ""}`}>
               {isResultWorkspace ? (
                 <div className="drawer-header">
@@ -486,6 +471,7 @@ export default function App() {
                 />
               ) : null}
             </aside>
+            ) : null}
           </main>
           )}
         </div>
@@ -720,34 +706,192 @@ function PlatformHeader({
   );
 }
 
-function LifecycleRail({
-  activeView,
-  currentJob,
-  databaseStatus,
-  hasResult
+function QuantIdeResourceSidebar({
+  strategies,
+  selectedStrategyId,
+  recentRuns,
+  recentRunsError,
+  selectedRunId,
+  isLoadingRunDetail,
+  onSelectStrategy,
+  onOpenRun
 }: {
-  activeView: WorkspaceView;
-  currentJob: BacktestJob | null;
-  databaseStatus: DatabaseStatus | null;
-  hasResult: boolean;
+  strategies: StrategyDefinition[];
+  selectedStrategyId: string;
+  recentRuns: RunSummary[];
+  recentRunsError: string | null;
+  selectedRunId: string | null;
+  isLoadingRunDetail: boolean;
+  onSelectStrategy: (strategyId: string) => void;
+  onOpenRun: (runId: string) => void;
 }) {
-  const isBacktestActive = activeView === "backtest" || hasResult;
-  const items = [
-    { key: "data", label: "数据", detail: databaseStatus?.connected ? "已接入" : "待连接", state: databaseStatus?.connected ? "done" : "locked" },
-    { key: "research", label: "研究", detail: "笔记本", state: activeView === "research" && !isBacktestActive ? "active" : "done" },
-    { key: "backtest", label: "回测", detail: currentJob?.status === "succeeded" ? "已完成" : "任务", state: isBacktestActive ? "active" : "done" },
-    { key: "simulate", label: "模拟", detail: "队列", state: currentJob ? "active" : "locked" },
-    { key: "live", label: "实盘", detail: "未启用", state: "locked" }
-  ];
   return (
-    <aside className="lifecycle-rail" data-testid="lifecycle-rail" aria-label="量化流程">
-      <div className="rail-logo">LQ</div>
-      {items.map((item) => (
-        <button className={`lifecycle-item ${item.state}`} key={item.key} type="button">
-          <span>{item.label}</span>
-          <strong>{item.detail}</strong>
+    <aside className="ide-resource-sidebar" data-testid="ide-resource-sidebar" aria-label="研究资源">
+      <div className="ide-sidebar-head">
+        <span>Workspace</span>
+        <strong>default</strong>
+      </div>
+
+      <section className="ide-tree-section">
+        <h2>策略</h2>
+        <div className="ide-tree-list">
+          {strategies.map((strategy) => (
+            <button
+              className={strategy.id === selectedStrategyId ? "selected" : ""}
+              key={strategy.id}
+              type="button"
+              onClick={() => onSelectStrategy(strategy.id)}
+            >
+              <span>{strategy.name}</span>
+              <em>{strategy.id}.py</em>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="ide-tree-section">
+        <h2>文件</h2>
+        <div className="ide-file-list">
+          <span className="active">strategy.py</span>
+          <span>research.ipynb</span>
+          <span>factor.py</span>
+          <span>README.md</span>
+        </div>
+      </section>
+
+      <section className="ide-tree-section ide-run-history">
+        <h2>历史回测</h2>
+        {recentRunsError ? <p className="status-note">{recentRunsError}</p> : null}
+        <div className="ide-history-list">
+          {recentRuns.slice(0, 5).map((run) => (
+            <button
+              className={run.runId === selectedRunId ? "selected" : ""}
+              disabled={isLoadingRunDetail}
+              key={run.runId}
+              type="button"
+              onClick={() => onOpenRun(run.runId)}
+            >
+              <span>{run.symbol}</span>
+              <strong>{run.metrics.total_return != null ? formatPercent(run.metrics.total_return) : "--"}</strong>
+              <em>{run.strategyName}</em>
+            </button>
+          ))}
+          {recentRuns.length === 0 && !recentRunsError ? (
+            <p className="status-note">暂无历史回测</p>
+          ) : null}
+        </div>
+      </section>
+    </aside>
+  );
+}
+
+function RunSetupPanel({
+  canRun,
+  blockingMessage,
+  configDrawerOpen,
+  currentJob,
+  dataCatalog,
+  databaseReady,
+  databaseStatus,
+  error,
+  form,
+  hasDirtyParams,
+  isResultWorkspace,
+  isRunning,
+  notice,
+  recentRuns,
+  result,
+  selectedStrategy,
+  setConfigDrawerOpen,
+  setForm,
+  strategies,
+  validationError,
+  onParamChange,
+  onSubmit,
+  onStrategyChange
+}: {
+  canRun: boolean;
+  blockingMessage: string | null;
+  configDrawerOpen: boolean;
+  currentJob: BacktestJob | null;
+  dataCatalog: DataCatalogResponse | null;
+  databaseReady: boolean;
+  databaseStatus: DatabaseStatus | null;
+  error: string | null;
+  form: BacktestRequest;
+  hasDirtyParams: boolean;
+  isResultWorkspace: boolean;
+  isRunning: boolean;
+  notice: string | null;
+  recentRuns: RunSummary[];
+  result: BacktestResponse | null;
+  selectedStrategy: StrategyDefinition | null;
+  setConfigDrawerOpen: Dispatch<SetStateAction<boolean>>;
+  setForm: Dispatch<SetStateAction<BacktestRequest>>;
+  strategies: StrategyDefinition[];
+  validationError: string | null;
+  onParamChange: (param: StrategyParamDefinition, value: number) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onStrategyChange: (strategyId: string) => void;
+}) {
+  return (
+    <aside className={`ide-parameter-panel config-drawer${configDrawerOpen ? " open" : ""}`} data-testid="ide-run-setup">
+      {isResultWorkspace ? (
+        <div className="drawer-header">
+          <div>
+            <span>参数配置</span>
+            <strong>{form.symbol}</strong>
+          </div>
+          <button className="drawer-close" type="button" onClick={() => setConfigDrawerOpen(false)}>
+            收起
+          </button>
+        </div>
+      ) : (
+        <div className="run-panel-header">
+          <span>Run Setup</span>
+          <strong>{selectedStrategy?.name ?? form.strategyId}</strong>
+        </div>
+      )}
+
+      <form className="run-setup-form" onSubmit={onSubmit}>
+        <UniverseDataSection form={form} setForm={setForm} />
+        <StrategyConfigSection
+          strategies={strategies}
+          selectedStrategy={selectedStrategy}
+          strategyId={form.strategyId}
+          strategyParams={form.strategyParams}
+          onStrategyChange={onStrategyChange}
+          onParamChange={onParamChange}
+        />
+        <RiskExecutionSection form={form} setForm={setForm} />
+
+        {validationError ? <div className="form-error" role="alert">{validationError}</div> : null}
+        {error ? <div className="form-error" role="alert">{error}</div> : null}
+        {notice ? <div className="form-info" role="status">{notice}</div> : null}
+        {blockingMessage ? <div className="form-warning" role="status">{blockingMessage}</div> : null}
+        {hasDirtyParams ? <div className="form-warning" role="status">参数已修改，请重新运行回测</div> : null}
+
+        <button className="run-button" disabled={!canRun}>
+          {isRunning
+            ? "回测中..."
+            : strategies.length === 0
+              ? "加载策略"
+              : !databaseReady
+                ? "等待数据库"
+                : "运行回测"}
         </button>
-      ))}
+
+        <p className="risk-note">回测结果基于历史数据，不构成投资建议。</p>
+      </form>
+
+      <QueueSimulationPanel
+        currentJob={currentJob}
+        dataCatalog={dataCatalog}
+        isRunning={isRunning}
+        recentRuns={recentRuns}
+        result={result}
+      />
+      <DataSourcePanel status={databaseStatus} />
     </aside>
   );
 }
@@ -818,7 +962,7 @@ function ResearchWorkbench({
   );
 }
 
-function PreRunAnalysisPreview({
+function RunOutputPanel({
   form,
   selectedStrategy,
   currentJob,
@@ -833,73 +977,42 @@ function PreRunAnalysisPreview({
 }) {
   const strategyName = selectedStrategy?.name ?? form.strategyId;
   const readiness = validationError ? "待修正" : databaseReady ? "可运行" : "待连接";
-  const previewBars = [42, 58, 48, 66, 72, 54, 62, 84, 76, 92, 70, 82, 96, 88, 78, 90];
+  const statusText = currentJob?.status ? jobStatusText(currentJob.status, false) : "未提交";
 
   return (
-    <section className="pre-run-preview" data-testid="pre-run-preview" aria-label="回测预览画布">
-      <div className="preview-hero-row">
-        <div className="preview-heading">
-          <span>回测画布</span>
-          <strong>{form.symbol} · {strategyName}</strong>
-        </div>
-        <div className={`preview-readiness ${readiness === "可运行" ? "ready" : "pending"}`}>
-          {readiness}
-        </div>
+    <section className="run-output-panel" data-testid="run-output-panel" aria-label="运行输出">
+      <div className="output-tab-strip">
+        <button className="active" type="button">Console</button>
+        <button type="button">Results</button>
+        <button type="button">Logs</button>
+        <button type="button">Artifacts</button>
       </div>
 
-      <div className="preview-kpi-grid">
-        <div>
-          <span>区间</span>
-          <strong>{form.start} 至 {form.end}</strong>
+      <div className="output-empty-state">
+        <div className="output-console-copy">
+          <span>Backtest queue</span>
+          <strong>{statusText}</strong>
+          <pre>{[
+            `strategy: ${strategyName}`,
+            `symbol:   ${form.symbol}`,
+            `range:    ${form.start} -> ${form.end}`,
+            `cash:     ${Math.round(form.cash).toLocaleString("zh-CN")}`,
+            `adjust:   ${form.adjust}`
+          ].join("\n")}</pre>
         </div>
-        <div>
-          <span>资金</span>
-          <strong>{Math.round(form.cash).toLocaleString("zh-CN")}</strong>
-        </div>
-        <div>
-          <span>手续费</span>
-          <strong>{form.commissionRate}</strong>
-        </div>
-        <div>
-          <span>任务</span>
-          <strong>{currentJob?.status ? jobStatusText(currentJob.status, false) : "未提交"}</strong>
-        </div>
-      </div>
 
-      <div className="preview-chart-panel">
-        <div className="preview-chart-toolbar">
-          <span>价格与信号</span>
-          <strong>{form.adjust}</strong>
-        </div>
-        <div className="preview-chart-grid">
-          <div className="preview-price-line" />
-          <div className="preview-candles" aria-hidden="true">
-            {previewBars.map((height, index) => (
-              <span
-                className={index % 5 === 0 ? "down" : "up"}
-                key={`${height}-${index}`}
-                style={{ height: `${height}px` }}
-              />
-            ))}
+        <div className="output-run-cards">
+          <div>
+            <span>环境</span>
+            <strong>{readiness}</strong>
           </div>
-        </div>
-      </div>
-
-      <div className="preview-bottom-grid">
-        <div className="preview-mini-panel">
-          <span>权益曲线</span>
-          <div className="preview-sparkline equity" />
-        </div>
-        <div className="preview-mini-panel">
-          <span>回撤诊断</span>
-          <div className="preview-sparkline drawdown" />
-        </div>
-        <div className="preview-mini-panel">
-          <span>成交明细</span>
-          <div className="preview-table-lines">
-            <i />
-            <i />
-            <i />
+          <div>
+            <span>结果</span>
+            <strong>等待回测</strong>
+          </div>
+          <div>
+            <span>诊断</span>
+            <strong>{validationError ?? "参数有效"}</strong>
           </div>
         </div>
       </div>

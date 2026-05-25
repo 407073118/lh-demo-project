@@ -21,10 +21,12 @@ test("dashboard renders with mocked API data in a real browser", { timeout: 9000
 
     await page.goto(baseUrl);
     await page.locator('[data-testid="global-product-nav"]').waitFor({ state: "visible" });
-    await page.locator('[data-testid="lifecycle-rail"]').waitFor({ state: "visible" });
+    await page.locator('[data-testid="ide-resource-sidebar"]').waitFor({ state: "visible" });
+    await page.locator('[data-testid="ide-run-setup"]').waitFor({ state: "visible" });
     await page.locator('[data-testid="research-workbench"]').waitFor({ state: "visible" });
     await page.locator('[data-testid="queue-simulation-panel"]').waitFor({ state: "visible" });
-    await page.locator('[data-testid="pre-run-preview"]').waitFor({ state: "visible" });
+    await page.locator('[data-testid="run-output-panel"]').waitFor({ state: "visible" });
+    assert.equal(await page.locator('[data-testid="pre-run-preview"]').count(), 0);
     assert.equal(await page.locator('[data-testid="platform-overview"]').count(), 0);
     await page.locator(".run-button").waitFor({ state: "visible" });
     await page.locator(".run-button").click();

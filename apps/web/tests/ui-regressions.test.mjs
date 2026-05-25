@@ -55,8 +55,8 @@ test("frontend has a documented institutional quant console design system", () =
   const styles = read("src/styles.css");
 
   assert.match(design, /name:\s*Institutional Quant Console/);
-  assert.match(design, /--color-platform-rail/);
-  assert.match(design, /high-density research console/i);
+  assert.match(design, /--color-platform-nav/);
+  assert.match(design, /high-density research IDE/i);
   assert.match(styles, /--color-gridline/);
   assert.match(styles, /--color-buy/);
   assert.match(styles, /--color-sell/);
@@ -129,23 +129,30 @@ test("platform shell exposes JoinQuant-style data, research, backtest, and simul
   assert.match(styles, /\.platform-nav/);
 });
 
-test("platform console has a JoinQuant-like navigation, lifecycle rail, research editor, and simulation queue", () => {
+test("platform console has a quant IDE navigation, resource tree, editor, and run panel", () => {
   const app = read("src/App.tsx");
   const styles = read("src/styles.css");
 
   assert.match(app, /PlatformHeader/);
-  assert.match(app, /LifecycleRail/);
+  assert.match(app, /QuantIdeResourceSidebar/);
+  assert.match(app, /RunSetupPanel/);
+  assert.match(app, /RunOutputPanel/);
   assert.match(app, /ResearchWorkbench/);
   assert.match(app, /QueueSimulationPanel/);
   assert.match(app, /data-testid="global-product-nav"/);
-  assert.match(app, /data-testid="lifecycle-rail"/);
+  assert.match(app, /data-testid="ide-resource-sidebar"/);
+  assert.match(app, /data-testid="ide-run-setup"/);
+  assert.match(app, /data-testid="run-output-panel"/);
   assert.match(app, /data-testid="research-workbench"/);
   assert.match(app, /data-testid="queue-simulation-panel"/);
   assert.match(styles, /\.workspace-shell/);
   assert.match(styles, /\.global-product-nav/);
-  assert.match(styles, /\.lifecycle-rail/);
+  assert.match(styles, /\.quant-ide/);
+  assert.match(styles, /\.ide-resource-sidebar/);
+  assert.match(styles, /\.ide-parameter-panel/);
   assert.match(styles, /\.research-terminal/);
   assert.match(styles, /\.simulation-ledger/);
+  assert.doesNotMatch(app, /<LifecycleRail/);
 });
 
 test("data assets and strategy library workspaces are wired to real APIs", () => {
@@ -174,8 +181,7 @@ test("platform console prioritizes analysis density over marketing cards", () =>
   assert.doesNotMatch(app, /platform-module-card/);
   assert.match(styles, /\.platform-status-strip/);
   assert.match(styles, /\.capability-pill/);
-  assert.match(styles, /grid-template-columns:\s*280px minmax\(0,\s*1fr\) 260px/);
-  assert.match(styles, /grid-template-columns:\s*68px minmax\(0,\s*1fr\)/);
+  assert.match(styles, /grid-template-columns:\s*240px minmax\(0,\s*1fr\) 320px/);
   assert.doesNotMatch(styles, /\.platform-module-card/);
 });
 
@@ -222,7 +228,7 @@ test("editing workspace keeps dense columns while result mode prioritizes result
   const app = read("src/App.tsx");
   const styles = read("src/styles.css");
 
-  assert.match(styles, /grid-template-columns:\s*280px minmax\(0,\s*1fr\) 260px/);
+  assert.match(styles, /grid-template-columns:\s*240px minmax\(0,\s*1fr\) 320px/);
   assert.match(styles, /\.main-panel\s*\{[\s\S]*overflow-x:\s*hidden/);
   assert.match(styles, /\.panel\s*\{[\s\S]*overflow:\s*hidden/);
   assert.doesNotMatch(styles, /grid-template-columns:\s*292px minmax\(680px,\s*1fr\) 276px/);
@@ -231,15 +237,17 @@ test("editing workspace keeps dense columns while result mode prioritizes result
   assert.match(app, /: \(\s*<>\s*<ResearchWorkbench/);
 });
 
-test("editing workspace has a structured pre-run analysis preview", () => {
+test("editing workspace uses IDE output tabs instead of a fake pre-run chart preview", () => {
   const app = read("src/App.tsx");
   const styles = read("src/styles.css");
 
-  assert.match(app, /PreRunAnalysisPreview/);
-  assert.match(app, /data-testid="pre-run-preview"/);
-  assert.match(styles, /\.pre-run-preview/);
-  assert.match(styles, /\.preview-kpi-grid/);
-  assert.match(styles, /\.preview-chart-panel/);
+  assert.match(app, /RunOutputPanel/);
+  assert.match(app, /data-testid="run-output-panel"/);
+  assert.match(styles, /\.run-output-panel/);
+  assert.match(styles, /\.output-tab-strip/);
+  assert.match(styles, /\.output-empty-state/);
+  assert.doesNotMatch(app, /PreRunAnalysisPreview/);
+  assert.doesNotMatch(app, /data-testid="pre-run-preview"/);
   assert.doesNotMatch(app, /<div className="empty-state">/);
 });
 
