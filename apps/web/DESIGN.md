@@ -20,6 +20,9 @@ colors:
   sell: "#027a48"
   warning: "#8a4b0f"
   danger: "#b42318"
+  risk: "#b54708"
+  risk-muted: "#fff7ed"
+  confidence: "#155eef"
 typography:
   display:
     fontFamily: Microsoft YaHei UI
@@ -139,11 +142,27 @@ Backtest results must use a result-focused layout. Once a run exists, the center
 
 Breakpoint rules are explicit: at 1920px and wider, the result workspace may pin an inspector if the main chart remains wide; from 1180px-1919px, only the main result canvas is persistent and side surfaces open as drawers; below 1180px, the result content comes first and auxiliary surfaces remain secondary. The K-line chart is the primary result view and should keep at least 70% of its chart-panel visible in the first desktop viewport.
 
+## Competitive Model
+
+The workbench borrows JoinQuant's IDE-first editing flow and RiceQuant's result report flow. Editing mode should feel like a compact strategy IDE: resource tree, code or strategy surface, run setup, and output logs. Result mode should feel like a backtest report: run identity, primary chart, data confidence, risk/return diagnostics, orders/trades, lineage, and logs.
+
+## Result Report
+
+Result mode starts with a compact run-context bar, a report navigation row, a compact metric strip, then a first-screen grid: primary chart on the left and `RunConfidencePanel` on the right. The report navigation should expose Overview, Returns/Risk, Price/Signals, Orders/Trades, Data Lineage, and Logs without hiding the primary chart behind a top-level tab.
+
+## Color Semantics
+
+Market semantics and risk semantics are separate. Market red/green is reserved for A-share price movement and buy/sell markers. Risk semantics cover drawdown, missing data, failed jobs, stale configs, and coverage gaps, and should use risk or neutral colors rather than market green.
+
+## Run Actions
+
+Do not fake fast backtest behavior. Until the backend exposes a distinct lightweight run endpoint, the run panel may provide configuration validation and one accurate full-run action only.
+
 ## Components
 
 Panels, metric tiles, data tables, segmented controls, file-tree rows, output tabs, and pills should be visually related: thin borders, muted headers, compact labels, and clear active states. Tables, charts, code, and logs are first-class surfaces; avoid card nesting and ornamental blocks. Empty states should be brief and operational.
 
-The run-context-bar carries symbol, strategy, range, provider, run id, status, and lightweight actions. Metric-tile is for decision metrics only. Chart-panel is for K-line, volume, equity, and drawdown visuals and must not be squeezed by data catalogs or completed job metadata. Inspector-panel may show job, history, trade, or lineage details only after the user opens the Inspector Drawer.
+The run-context-bar carries symbol, strategy, range, provider, benchmark, run id, engine version, data version, status, and lightweight actions. Compact metric strips are for decision metrics only. Chart-panel is for K-line, volume, equity, and drawdown visuals and must not be squeezed by data catalogs or completed job metadata. `RunConfidencePanel` shows provider chain, data coverage, missing dates, adjustment, engine assumptions, and lineage actions in the first result viewport. Inspector-panel may show job, history, trade, or lineage details only after the user opens the Inspector Drawer.
 
 The run-output-panel replaces fake pre-run chart previews. Before execution it should show console-style run context, result/log/artifact tabs, and readiness diagnostics. It must not imply real market analysis before a backtest has actually run.
 

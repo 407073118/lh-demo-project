@@ -253,6 +253,20 @@ export default function App() {
     }));
   }
 
+  function handleValidateConfig() {
+    setError(null);
+    setNotice(null);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    if (blockingMessage) {
+      setError(blockingMessage);
+      return;
+    }
+    setNotice("配置校验通过，可以运行完整回测。");
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (validationError) {
@@ -433,6 +447,7 @@ export default function App() {
               onParamChange={updateStrategyParam}
               onSubmit={handleSubmit}
               onStrategyChange={handleStrategyChange}
+              onValidateConfig={handleValidateConfig}
             />
 
             {isResultWorkspace ? (
@@ -819,7 +834,8 @@ function RunSetupPanel({
   validationError,
   onParamChange,
   onSubmit,
-  onStrategyChange
+  onStrategyChange,
+  onValidateConfig
 }: {
   canRun: boolean;
   blockingMessage: string | null;
@@ -844,6 +860,7 @@ function RunSetupPanel({
   onParamChange: (param: StrategyParamDefinition, value: number) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onStrategyChange: (strategyId: string) => void;
+  onValidateConfig: () => void;
 }) {
   return (
     <aside className={`ide-parameter-panel config-drawer${configDrawerOpen ? " open" : ""}`} data-testid="ide-run-setup">
@@ -882,15 +899,20 @@ function RunSetupPanel({
         {blockingMessage ? <div className="form-warning" role="status">{blockingMessage}</div> : null}
         {hasDirtyParams ? <div className="form-warning" role="status">参数已修改，请重新运行回测</div> : null}
 
-        <button className="run-button" disabled={!canRun}>
-          {isRunning
-            ? "回测中..."
-            : strategies.length === 0
-              ? "加载策略"
-              : !databaseReady
-                ? "等待数据库"
-                : "运行回测"}
-        </button>
+        <div className="run-action-row">
+          <button className="secondary-run-button" type="button" onClick={onValidateConfig}>
+            校验配置
+          </button>
+          <button className="run-button" disabled={!canRun}>
+            {isRunning
+              ? "回测运行中..."
+              : strategies.length === 0
+                ? "加载策略"
+                : !databaseReady
+                  ? "等待数据库"
+                  : "运行完整回测"}
+          </button>
+        </div>
 
         <p className="risk-note">回测结果基于历史数据，不构成投资建议。</p>
       </form>

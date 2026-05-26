@@ -32,6 +32,9 @@ test("dashboard renders with mocked API data in a real browser", { timeout: 9000
     await page.locator(".run-button").click();
     await page.locator('[data-testid="job-status-panel"]').waitFor({ state: "visible" });
     await page.locator('[data-testid="result-dashboard"]').waitFor({ state: "visible" });
+    await page.locator('[data-testid="result-report-nav"]').waitFor({ state: "visible" });
+    await page.locator('[data-testid="run-confidence-panel"]').waitFor({ state: "visible" });
+    assert.equal(await page.locator(".metric-detail-disclosure").count(), 0);
 
     await page.locator('[data-testid="trade-filter"]').waitFor({ state: "visible" });
     await page.locator('[data-testid="chart-data-toggle"]').click();
@@ -42,7 +45,7 @@ test("dashboard renders with mocked API data in a real browser", { timeout: 9000
     assert.ok(chartCanvasCount > 0, "expected ECharts to render at least one canvas");
     await assertResultLayout(page, 1366);
     const overflowingContainers = await page.evaluate(() =>
-      [".workspace", ".main-panel", ".result-dashboard", ".run-context-bar", ".dashboard-chart-grid"]
+      [".workspace", ".main-panel", ".result-dashboard", ".run-context-bar", ".result-first-grid"]
         .flatMap((selector) => {
           const element = document.querySelector(selector);
           if (!element) {
@@ -101,21 +104,33 @@ async function assertResultLayout(page, width) {
     const inspector = inspectorElement?.getBoundingClientRect();
     const chart = document.querySelector(".chart-large")?.getBoundingClientRect();
     const contextBar = document.querySelector(".run-context-bar")?.getBoundingClientRect();
+    const confidence = document.querySelector('[data-testid="run-confidence-panel"]')?.getBoundingClientRect();
+    const reportNav = document.querySelector('[data-testid="result-report-nav"]')?.getBoundingClientRect();
+    const firstGrid = document.querySelector(".result-first-grid")?.getBoundingClientRect();
     const inspectorStyle = inspectorElement ? window.getComputedStyle(inspectorElement) : null;
     return {
       chartHeight: chart?.height ?? 0,
+      confidenceTop: confidence?.top ?? 0,
+      confidenceWidth: confidence?.width ?? 0,
       contextTop: contextBar?.top ?? 0,
+      firstGridWidth: firstGrid?.width ?? 0,
       horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       inspectorDisplay: inspectorStyle?.display ?? "missing",
       inspectorLeft: inspector?.left ?? 0,
       mainWidth: main?.width ?? 0,
+      reportNavTop: reportNav?.top ?? 0,
       viewportWidth: window.innerWidth
     };
   });
 
   assert.ok(layout.horizontalOverflow <= 1, `expected no horizontal page overflow at ${width}px, got ${layout.horizontalOverflow}px`);
   assert.ok(layout.contextTop < 130, `expected run context near the first viewport at ${width}px, got top ${layout.contextTop}px`);
+  assert.ok(layout.reportNavTop < 220, `expected report navigation near first viewport at ${width}px`);
+  assert.ok(layout.firstGridWidth >= Math.min(360, layout.mainWidth - 24), `expected first result grid to render at ${width}px`);
   assert.ok(layout.chartHeight >= 430, `expected readable primary chart at ${width}px, got ${layout.chartHeight}px`);
+  if (width >= 1366) {
+    assert.ok(layout.confidenceWidth >= 260, `expected useful confidence panel at ${width}px, got ${layout.confidenceWidth}px`);
+  }
   if (width < 1920) {
     assert.ok(layout.mainWidth >= layout.viewportWidth - 90, `expected result main panel to use available width at ${width}px, got ${layout.mainWidth}px`);
     assert.equal(layout.inspectorDisplay, "none", `expected result inspector to be closed at ${width}px`);
