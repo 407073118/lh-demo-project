@@ -3,9 +3,73 @@ from __future__ import annotations
 import pandas as pd
 from fastapi.testclient import TestClient
 
-from lh_quant.data.akshare_provider import AkShareDataError
+from lh_quant.data.providers import MarketDataProviderError, MarketDataResult
 from lh_quant.data.sample import generate_sample_bars
 from lh_quant.storage.database import DatabaseStatus
+
+
+class _FakeMarketDataProvider:
+    provider_id = "akshare"
+    display_name = "AKShare"
+
+    def __init__(
+        self,
+        bars: pd.DataFrame | None = None,
+        error: Exception | None = None,
+        assert_request=None,
+    ) -> None:
+        self._bars = bars
+        self._error = error
+        self._assert_request = assert_request
+
+    def download_bars(
+        self,
+        symbol: str,
+        start: str,
+        end: str,
+        adjust: str,
+    ) -> MarketDataResult:
+        if self._assert_request is not None:
+            self._assert_request(symbol, start, end, adjust)
+        if self._error is not None:
+            raise self._error
+        if self._bars is None:
+            raise MarketDataProviderError("missing fake bars")
+        return MarketDataResult(
+            bars=self._bars,
+            requested_provider="akshare",
+            actual_provider="AKShare",
+            source_detail="AKShare 测试接口",
+            raw_symbol=symbol,
+            normalized_symbol=symbol,
+            frequency="1d",
+            adjust=adjust or "",
+            data_version="akshare:test",
+            fetched_at="2024-01-01T00:00:00+00:00",
+            fallback_chain=[
+                {
+                    "provider": "AKShare",
+                    "status": "succeeded",
+                    "sourceDetail": "AKShare 测试接口",
+                }
+            ],
+        )
+
+
+def _patch_market_provider(
+    monkeypatch,
+    bars: pd.DataFrame | None = None,
+    error: Exception | None = None,
+    assert_request=None,
+) -> None:
+    def fake_build_market_data_provider(provider_id: str):
+        assert provider_id == "akshare"
+        return _FakeMarketDataProvider(bars=bars, error=error, assert_request=assert_request)
+
+    monkeypatch.setattr(
+        "lh_quant.api.app.build_market_data_provider",
+        fake_build_market_data_provider,
+    )
 
 
 def test_create_app_does_not_touch_database_before_first_request(tmp_path, monkeypatch) -> None:
@@ -224,10 +288,7 @@ def test_api_backtest_runs_selected_strategy_from_request(tmp_path, monkeypatch)
     database_url = f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}"
     bars = generate_sample_bars(symbol="000001", periods=90)
 
-    def fake_download_akshare_bars(symbol: str, start: str, end: str, adjust: str) -> pd.DataFrame:
-        return bars
-
-    monkeypatch.setattr("lh_quant.api.app.download_akshare_bars", fake_download_akshare_bars)
+    _patch_market_provider(monkeypatch, bars=bars)
     client = TestClient(create_app(database_url=database_url))
 
     response = client.post(
@@ -257,14 +318,13 @@ def test_api_backtest_runs_a_share_moving_average_flow(tmp_path, monkeypatch) ->
     database_url = f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}"
     bars = generate_sample_bars(symbol="000001", periods=90)
 
-    def fake_download_akshare_bars(symbol: str, start: str, end: str, adjust: str) -> pd.DataFrame:
+    def assert_request(symbol: str, start: str, end: str, adjust: str) -> None:
         assert symbol == "000001"
         assert start == "2024-01-01"
         assert end == "2024-06-30"
         assert adjust == "qfq"
-        return bars
 
-    monkeypatch.setattr("lh_quant.api.app.download_akshare_bars", fake_download_akshare_bars)
+    _patch_market_provider(monkeypatch, bars=bars, assert_request=assert_request)
     client = TestClient(create_app(database_url=database_url))
 
     response = client.post(
@@ -285,10 +345,15 @@ def test_api_backtest_runs_a_share_moving_average_flow(tmp_path, monkeypatch) ->
     assert payload["symbol"] == "000001"
     assert payload["strategy"]["name"] == "双均线策略"
     assert payload["dataSource"]["provider"] == "AKShare"
+    assert payload["dataSource"]["requestedProvider"] == "auto"
+    assert payload["dataSource"]["actualProvider"] == "AKShare"
     assert payload["dataSource"]["cached"] is False
     assert set(payload["dataSource"]) >= {
+        "requestedProvider",
+        "actualProvider",
         "sourceDetail",
         "dataVersion",
+        "fallbackChain",
         "coverage",
         "engineAssumptions",
     }
@@ -319,6 +384,59 @@ def test_api_backtest_runs_a_share_moving_average_flow(tmp_path, monkeypatch) ->
     }
 
 
+def test_api_backtest_explicit_akshare_records_requested_provider(tmp_path, monkeypatch) -> None:
+    from lh_quant.api.app import create_app
+
+    database_url = f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}"
+    bars = generate_sample_bars(symbol="000001", periods=90)
+    _patch_market_provider(monkeypatch, bars=bars)
+    client = TestClient(create_app(database_url=database_url))
+
+    response = client.post(
+        "/api/backtests/run",
+        json={
+            "symbol": "000001",
+            "start": "2024-01-01",
+            "end": "2024-06-30",
+            "strategyId": "moving_average",
+            "strategyParams": {"fastWindow": 5, "slowWindow": 20},
+            "cash": 100000,
+            "adjust": "qfq",
+            "dataProvider": "akshare",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["strategy"]["params"]["dataProvider"] == "akshare"
+    assert payload["dataSource"]["requestedProvider"] == "akshare"
+    assert payload["dataSource"]["actualProvider"] == "AKShare"
+
+
+def test_api_backtest_rejects_tushare_adjusted_request(tmp_path) -> None:
+    from lh_quant.api.app import create_app
+
+    database_url = f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}"
+    client = TestClient(create_app(database_url=database_url))
+
+    response = client.post(
+        "/api/backtests/run",
+        json={
+            "symbol": "000001",
+            "start": "2024-01-01",
+            "end": "2024-06-30",
+            "strategyId": "moving_average",
+            "strategyParams": {"fastWindow": 5, "slowWindow": 20},
+            "cash": 100000,
+            "adjust": "qfq",
+            "dataProvider": "tushare",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "暂不支持 Tushare 复权" in response.text
+
+
 def test_api_backtest_rejects_when_akshare_is_unavailable(
     tmp_path,
     monkeypatch,
@@ -327,10 +445,7 @@ def test_api_backtest_rejects_when_akshare_is_unavailable(
 
     database_url = f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}"
 
-    def fake_download_akshare_bars(symbol: str, start: str, end: str, adjust: str) -> pd.DataFrame:
-        raise AkShareDataError("AKShare 测试超时")
-
-    monkeypatch.setattr("lh_quant.api.app.download_akshare_bars", fake_download_akshare_bars)
+    _patch_market_provider(monkeypatch, error=MarketDataProviderError("AKShare 测试超时"))
     client = TestClient(create_app(database_url=database_url))
 
     response = client.post(
@@ -371,12 +486,11 @@ def test_api_backtest_ignores_cached_yahoo_bars_for_a_share_flow(
         adjust="qfq",
     )
 
-    def fake_download_akshare_bars(symbol: str, start: str, end: str, adjust: str) -> pd.DataFrame:
+    def assert_request(symbol: str, _start: str, _end: str, adjust: str) -> None:
         assert symbol == "000001"
         assert adjust == "qfq"
-        return bars
 
-    monkeypatch.setattr("lh_quant.api.app.download_akshare_bars", fake_download_akshare_bars)
+    _patch_market_provider(monkeypatch, bars=bars, assert_request=assert_request)
     client = TestClient(create_app(database_url=database_url))
 
     response = client.post(
@@ -395,8 +509,9 @@ def test_api_backtest_ignores_cached_yahoo_bars_for_a_share_flow(
     assert response.status_code == 200
     payload = response.json()
     assert payload["dataSource"]["provider"] == "AKShare"
+    assert payload["dataSource"]["requestedProvider"] == "auto"
     assert payload["dataSource"]["cached"] is False
-    assert "已通过 AKShare 读取 A股日线数据" in payload["logs"]
+    assert "已通过 AKShare 测试接口 读取 A股日线数据" in payload["logs"]
 
 
 def test_api_backtest_persists_run_when_database_is_enabled(tmp_path, monkeypatch) -> None:
@@ -406,10 +521,7 @@ def test_api_backtest_persists_run_when_database_is_enabled(tmp_path, monkeypatc
     database_url = f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}"
     bars = generate_sample_bars(symbol="000001", periods=90)
 
-    def fake_download_akshare_bars(symbol: str, start: str, end: str, adjust: str) -> pd.DataFrame:
-        return bars
-
-    monkeypatch.setattr("lh_quant.api.app.download_akshare_bars", fake_download_akshare_bars)
+    _patch_market_provider(monkeypatch, bars=bars)
     app = create_app(database_url=database_url)
     client = TestClient(app)
 
@@ -433,6 +545,9 @@ def test_api_backtest_persists_run_when_database_is_enabled(tmp_path, monkeypatc
     assert "已保存回测记录到数据库" in payload["logs"]
     runs = list_backtest_runs(app.state.db_engine, limit=5)
     assert runs[0]["runId"] == payload["runId"]
+    assert runs[0]["requestedProvider"] == "auto"
+    assert runs[0]["actualProvider"] == "AKShare"
+    assert runs[0]["fallbackChain"][0]["provider"] == "AKShare"
     assert "annualized_return" in runs[0]["metrics"]
     assert "calmar_ratio" in runs[0]["metrics"]
     assert "win_rate" in runs[0]["metrics"]
@@ -449,10 +564,7 @@ def test_api_loads_backtest_run_detail(tmp_path, monkeypatch) -> None:
     database_url = f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}"
     bars = generate_sample_bars(symbol="000001", periods=90)
 
-    def fake_download_akshare_bars(symbol: str, start: str, end: str, adjust: str) -> pd.DataFrame:
-        return bars
-
-    monkeypatch.setattr("lh_quant.api.app.download_akshare_bars", fake_download_akshare_bars)
+    _patch_market_provider(monkeypatch, bars=bars)
     client = TestClient(create_app(database_url=database_url))
 
     run_response = client.post(
@@ -493,10 +605,7 @@ def test_api_creates_backtest_job_and_restores_job_result(tmp_path, monkeypatch)
     database_url = f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}"
     bars = generate_sample_bars(symbol="000001", periods=90)
 
-    def fake_download_akshare_bars(symbol: str, start: str, end: str, adjust: str) -> pd.DataFrame:
-        return bars
-
-    monkeypatch.setattr("lh_quant.api.app.download_akshare_bars", fake_download_akshare_bars)
+    _patch_market_provider(monkeypatch, bars=bars)
     client = TestClient(create_app(database_url=database_url))
 
     create_response = client.post(
@@ -569,10 +678,7 @@ def test_api_backtest_rejects_commission_rate_that_consumes_cash(tmp_path, monke
     database_url = f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}"
     bars = generate_sample_bars(symbol="000001", periods=90)
 
-    def fake_download_akshare_bars(symbol: str, start: str, end: str, adjust: str) -> pd.DataFrame:
-        return bars
-
-    monkeypatch.setattr("lh_quant.api.app.download_akshare_bars", fake_download_akshare_bars)
+    _patch_market_provider(monkeypatch, bars=bars)
     client = TestClient(create_app(database_url=database_url), raise_server_exceptions=False)
 
     response = client.post(

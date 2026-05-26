@@ -10,6 +10,8 @@ from urllib import request
 
 import pandas as pd
 
+from lh_quant.data.schema import BarValidationError, validate_bars
+
 
 class TushareProviderError(RuntimeError):
     """Tushare 配置或响应无效时抛出的错误。"""
@@ -55,6 +57,22 @@ class TushareProvider:
         }
         response = self._request(payload)
         return [_trade_calendar_record(row) for row in _rows(response)]
+
+    def fetch_daily_bars(self, symbol: str, start: str, end: str) -> pd.DataFrame:
+        """同步 Tushare 未复权日线，并转换成项目统一 K 线格式。"""
+
+        payload = {
+            "api_name": "daily",
+            "token": self.token,
+            "params": {
+                "ts_code": _to_tushare_symbol(symbol),
+                "start_date": _to_tushare_date(start),
+                "end_date": _to_tushare_date(end),
+            },
+            "fields": "ts_code,trade_date,open,high,low,close,vol,amount",
+        }
+        response = self._request(payload)
+        return normalize_tushare_daily(_rows(response), symbol=symbol)
 
     def _request(self, payload: dict[str, Any]) -> dict[str, Any]:
         """发送请求并把 Tushare 错误码转换为明确异常。"""
@@ -102,6 +120,62 @@ def _trade_calendar_record(row: dict[str, Any]) -> dict[str, Any]:
         "pretrade_date": _to_iso_date(row["pretrade_date"]) if row.get("pretrade_date") else None,
         "source": "Tushare",
     }
+
+
+def normalize_tushare_daily(rows: list[dict[str, Any]], symbol: str) -> pd.DataFrame:
+    """把 Tushare `daily` 行转换为项目统一 OHLCV K 线。"""
+
+    if not rows:
+        raise TushareProviderError(f"Tushare daily returned no data: {symbol}")
+
+    raw = pd.DataFrame(rows)
+    required = ["trade_date", "open", "high", "low", "close", "vol"]
+    missing = [column for column in required if column not in raw.columns]
+    if missing:
+        raise TushareProviderError(f"Tushare daily 缺少字段: {', '.join(missing)}")
+
+    bars = pd.DataFrame(
+        {
+            "symbol": _normalize_platform_symbol(symbol),
+            "datetime": raw["trade_date"].map(_to_iso_date),
+            "open": raw["open"],
+            "high": raw["high"],
+            "low": raw["low"],
+            "close": raw["close"],
+            "volume": pd.to_numeric(raw["vol"], errors="coerce") * 100,
+        }
+    )
+
+    try:
+        return validate_bars(bars)
+    except BarValidationError as error:
+        raise TushareProviderError(f"Tushare daily K线数据校验失败: {error}") from error
+
+
+def _to_tushare_symbol(symbol: str) -> str:
+    """把平台 A 股代码转换成 Tushare `ts_code`。"""
+
+    normalized = symbol.strip().upper()
+    if normalized.endswith((".SZ", ".SH", ".BJ")):
+        return normalized
+    if normalized.startswith(("SH", "SZ", "BJ")) and len(normalized) == 8:
+        return f"{normalized[2:]}.{normalized[:2]}"
+    if normalized.startswith("6"):
+        return f"{normalized}.SH"
+    if normalized.startswith(("4", "8")):
+        return f"{normalized}.BJ"
+    return f"{normalized}.SZ"
+
+
+def _normalize_platform_symbol(symbol: str) -> str:
+    """把带市场后缀的数据源代码恢复成平台内部 6 位代码。"""
+
+    normalized = symbol.strip().upper()
+    if "." in normalized:
+        return normalized.split(".", maxsplit=1)[0]
+    if normalized.startswith(("SH", "SZ", "BJ")) and len(normalized) == 8:
+        return normalized[2:]
+    return normalized
 
 
 def _to_tushare_date(value: str) -> str:

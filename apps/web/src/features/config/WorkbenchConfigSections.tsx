@@ -58,6 +58,23 @@ export function UniverseDataSection({
           <option value="">不复权</option>
         </select>
       </label>
+      <label>
+        数据来源
+        <select
+          value={form.dataProvider}
+          onChange={(event) =>
+            setForm((current) => ({
+              ...current,
+              dataProvider: event.target.value as BacktestRequest["dataProvider"]
+            }))
+          }
+        >
+          <option value="auto">自动</option>
+          <option value="tushare">Tushare</option>
+          <option value="akshare">AKShare</option>
+          <option value="yahoo">Yahoo</option>
+        </select>
+      </label>
     </section>
   );
 }

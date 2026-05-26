@@ -1,51 +1,62 @@
 import type { BacktestResponse } from "../../api";
 import { formatMoney, formatNumber, formatPercent } from "../../format";
 
+type MetricTone = "positive" | "negative" | "risk" | "neutral";
+
+type MetricItem = {
+  label: string;
+  value: string;
+  tone: MetricTone;
+};
+
 export function ResultOverview({ result }: { result: BacktestResponse }) {
   const { metrics } = result;
-  const primaryItems = [
-    ["累计收益", formatPercent(metrics.totalReturn), metricTone(metrics.totalReturn)],
-    ["最大回撤", formatPercent(metrics.maxDrawdown), "risk"],
-    ["最终权益", formatMoney(metrics.finalEquity), metricTone(metrics.finalEquity - metrics.startingCash)],
-    ["夏普比率", formatOptionalNumber(metrics.sharpeRatio), metricTone(metrics.sharpeRatio ?? 0)],
-    ["交易次数", String(metrics.tradeCount), "neutral"]
-  ];
-  const secondaryItems = [
-    ["年化收益", formatOptionalPercent(metrics.annualizedReturn)],
-    ["年化波动", formatOptionalPercent(metrics.annualizedVolatility)],
-    ["索提诺比率", formatOptionalNumber(metrics.sortinoRatio)],
-    ["卡玛比率", formatOptionalNumber(metrics.calmarRatio)],
-    ["胜率", formatOptionalPercent(metrics.winRate)],
-    ["换手率", formatOptionalNumber(metrics.turnover)],
-    ["资金暴露", formatOptionalPercent(metrics.exposure)]
+  const metricsItems: MetricItem[] = [
+    {
+      label: "累计收益",
+      value: formatPercent(metrics.totalReturn),
+      tone: metricTone(metrics.totalReturn)
+    },
+    {
+      label: "最大回撤",
+      value: formatPercent(metrics.maxDrawdown),
+      tone: "risk"
+    },
+    {
+      label: "最终权益",
+      value: formatMoney(metrics.finalEquity),
+      tone: "neutral"
+    },
+    {
+      label: "夏普比率",
+      value: formatOptionalNumber(metrics.sharpeRatio),
+      tone: "neutral"
+    },
+    {
+      label: "交易次数",
+      value: formatNumber(metrics.tradeCount, 0),
+      tone: "neutral"
+    },
+    {
+      label: "胜率",
+      value: formatOptionalPercent(metrics.winRate),
+      tone: "neutral"
+    }
   ];
 
   return (
-    <section className="result-overview" aria-label="核心回测指标">
-      <div className="metric-strip result-metric-strip">
-        {primaryItems.map(([label, value, tone]) => (
-          <div className={`metric-item ${tone}`} key={label}>
-            <span>{label}</span>
-            <strong>{value}</strong>
-          </div>
-        ))}
-      </div>
-      <details className="panel metric-detail-panel metric-detail-disclosure">
-        <summary>指标明细</summary>
-        <div className="compact-metric-grid">
-          {secondaryItems.map(([label, value]) => (
-            <div className="compact-metric" key={label}>
-              <span>{label}</span>
-              <strong>{value}</strong>
-            </div>
-          ))}
+    <section className="compact-metric-strip" aria-label="核心回测指标">
+      {metricsItems.map((metric) => (
+        <div className={`compact-result-metric ${metric.tone}`} key={metric.label}>
+          <span>{metric.label}</span>
+          <strong>{metric.value}</strong>
         </div>
-      </details>
+      ))}
     </section>
   );
 }
 
-function metricTone(value: number): "positive" | "negative" | "neutral" {
+function metricTone(value: number): MetricTone {
   if (value > 0) {
     return "positive";
   }

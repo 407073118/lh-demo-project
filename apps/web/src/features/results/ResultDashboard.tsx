@@ -7,6 +7,7 @@ import { OrdersTradesPanel } from "./OrdersTradesPanel";
 import { PriceSignalPanel } from "./PriceSignalPanel";
 import { ResultOverview } from "./ResultOverview";
 import { RiskReturnPanel } from "./RiskReturnPanel";
+import { RunConfidencePanel } from "./RunConfidencePanel";
 import { Panel, PanelTitle } from "./uiPrimitives";
 
 type ResultDashboardProps = {
@@ -41,12 +42,26 @@ export function ResultDashboard({
         onOpenConfig={onOpenConfig}
         onOpenInspector={onOpenInspector}
       />
-      <ResultOverview result={result} />
-      <div className="dashboard-chart-grid">
-        <PriceSignalPanel candlestickOption={candlestickOption} volumeOption={volumeOption} />
-        <RiskReturnPanel result={result} equityOption={equityOption} />
+      <ResultReportNav />
+      <section id="overview" className="result-overview-block">
+        <ResultOverview result={result} />
+      </section>
+      <div className="result-first-grid">
+        <section id="price-signals" className="primary-result-chart">
+          <PriceSignalPanel candlestickOption={candlestickOption} volumeOption={volumeOption} />
+        </section>
+        <RunConfidencePanel
+          result={result}
+          onOpenConfig={onOpenConfig}
+          onOpenInspector={onOpenInspector}
+        />
       </div>
-      <RunDetailsPanel result={result} />
+      <section id="returns-risk">
+        <RiskReturnPanel result={result} equityOption={equityOption} />
+      </section>
+      <section id="run-details">
+        <RunDetailsPanel result={result} />
+      </section>
     </div>
   );
 }
@@ -64,15 +79,22 @@ function RunContextBar({
   onOpenConfig?: () => void;
   onOpenInspector?: (drawer: "job" | "history" | "lineage" | "trade") => void;
 }) {
+  const actualProvider = result.dataSource.actualProvider ?? result.dataSource.provider;
+  const engineVersion = result.dataSource.engineVersion ?? "signal-close-v1";
+  const dataVersion = result.dataSource.dataVersion ?? "unknown";
+
   return (
     <section className="run-context-bar" aria-label="运行上下文">
       <div className="run-context-primary">
         <strong>{result.symbol}</strong>
         <span>{result.strategy.name}</span>
       </div>
-      <div className="run-context-meta">
+      <div className="run-context-meta-grid">
         <span>{result.dataSource.start} 至 {result.dataSource.end}</span>
-        <span>{result.dataSource.provider} · {result.dataSource.adjust}</span>
+        <span>基准：未设置</span>
+        <span>{actualProvider} · {result.dataSource.adjust || "不复权"}</span>
+        <span>引擎：{engineVersion}</span>
+        <span title={dataVersion}>数据：{dataVersion}</span>
         <span title={result.runId ?? "未落库"}>{result.runId ?? "未落库"}</span>
         <span>{runTimestamp}</span>
         <strong>{runStatus}</strong>
@@ -84,6 +106,25 @@ function RunContextBar({
         <button type="button" onClick={() => onOpenInspector?.("lineage")}>血缘</button>
       </div>
     </section>
+  );
+}
+
+const REPORT_LINKS = [
+  { href: "#overview", label: "概览" },
+  { href: "#price-signals", label: "价格信号" },
+  { href: "#returns-risk", label: "收益风险" },
+  { href: "#run-details", label: "订单成交" },
+  { href: "#run-details", label: "数据血缘" },
+  { href: "#run-details", label: "运行日志" }
+];
+
+function ResultReportNav() {
+  return (
+    <nav className="result-report-nav" data-testid="result-report-nav" aria-label="结果报告导航">
+      {REPORT_LINKS.map((link, index) => (
+        <a href={link.href} key={`${link.href}-${index}`}>{link.label}</a>
+      ))}
+    </nav>
   );
 }
 

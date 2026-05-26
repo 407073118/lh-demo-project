@@ -65,6 +65,18 @@ test("frontend has a documented institutional quant console design system", () =
   assert.match(styles, /\.workspace::before/);
 });
 
+test("design contract captures RiceQuant and JoinQuant inspired workbench rules", () => {
+  const design = read("DESIGN.md");
+
+  assert.match(design, /RiceQuant/i);
+  assert.match(design, /JoinQuant/i);
+  assert.match(design, /result report/i);
+  assert.match(design, /RunConfidencePanel/);
+  assert.match(design, /market semantics/i);
+  assert.match(design, /risk semantics/i);
+  assert.match(design, /do not fake fast backtest/i);
+});
+
 test("charts are accessible and lazy-load the charting library", () => {
   const chart = read("src/EChart.tsx");
 
@@ -209,8 +221,44 @@ test("result dashboard exposes a compact run context before charts", () => {
   assert.match(dashboard, /className="run-context-bar"/);
   assert.match(dashboard, /onOpenConfig/);
   assert.match(dashboard, /onOpenInspector/);
-  assert.match(overview, /metric-detail-disclosure/);
-  assert.match(overview, /<summary/);
+  assert.match(overview, /compact-metric-strip/);
+});
+
+test("result dashboard uses report-first layout with confidence panel and compact metrics", () => {
+  const dashboard = read("src/features/results/ResultDashboard.tsx");
+  const overview = read("src/features/results/ResultOverview.tsx");
+  const styles = read("src/styles.css");
+
+  assert.match(dashboard, /RunConfidencePanel/);
+  assert.match(dashboard, /ResultReportNav/);
+  assert.match(dashboard, /className="result-first-grid"/);
+  assert.match(overview, /compact-metric-strip/);
+  assert.doesNotMatch(overview, /metric-detail-disclosure/);
+  assert.match(styles, /\.result-first-grid/);
+  assert.match(styles, /\.run-confidence-panel/);
+  assert.match(styles, /\.result-report-nav/);
+});
+
+test("market and risk color semantics are separated", () => {
+  const styles = read("src/styles.css");
+
+  assert.match(styles, /--color-market-up/);
+  assert.match(styles, /--color-market-down/);
+  assert.match(styles, /--color-risk/);
+  assert.match(styles, /--color-risk-muted/);
+  assert.match(styles, /\.risk-text/);
+});
+
+test("run context exposes audit metadata without one-line truncation", () => {
+  const dashboard = read("src/features/results/ResultDashboard.tsx");
+  const styles = read("src/styles.css");
+
+  assert.match(dashboard, /actualProvider/);
+  assert.match(dashboard, /engineVersion/);
+  assert.match(dashboard, /dataVersion/);
+  assert.match(dashboard, /基准/);
+  assert.match(styles, /\.run-context-meta-grid/);
+  assert.match(styles, /overflow-wrap:\s*anywhere/);
 });
 
 test("design contract defines result-mode layout guardrails", () => {
@@ -251,6 +299,17 @@ test("editing workspace uses IDE output tabs instead of a fake pre-run chart pre
   assert.doesNotMatch(app, /<div className="empty-state">/);
 });
 
+test("run setup uses accurate validation and full-run actions", () => {
+  const app = read("src/App.tsx");
+  const styles = read("src/styles.css");
+
+  assert.match(app, /onValidateConfig/);
+  assert.match(app, /校验配置/);
+  assert.match(app, /运行完整回测/);
+  assert.doesNotMatch(app, /快速回测/);
+  assert.match(styles, /\.run-action-row/);
+});
+
 test("quant IDE chrome is visually aligned and prioritizes the editor on narrow screens", () => {
   const app = read("src/App.tsx");
   const styles = read("src/styles.css");
@@ -269,11 +328,27 @@ test("backtest workspace does not show the platform overview strip", () => {
   assert.doesNotMatch(app, /isResultWorkspace \? null : <PlatformOverview/);
 });
 
+test("backtest requests expose an explicit market data provider selector", () => {
+  const app = read("src/App.tsx");
+  const api = read("src/api.ts");
+  const config = read("src/features/config/WorkbenchConfigSections.tsx");
+  const lineage = read("src/features/results/DataLineagePanel.tsx");
+
+  assert.match(api, /export type DataProviderId = "auto" \| "tushare" \| "akshare" \| "yahoo"/);
+  assert.match(app, /dataProvider:\s*"auto"/);
+  assert.match(config, /数据来源/);
+  assert.match(config, /<option value="auto">自动<\/option>/);
+  assert.match(config, /<option value="tushare">Tushare<\/option>/);
+  assert.match(lineage, /请求来源/);
+  assert.match(lineage, /实际来源/);
+  assert.match(lineage, /formatFallbackChain/);
+});
+
 test("desktop dashboard keeps primary metrics scannable in one row", () => {
   const styles = read("src/styles.css");
 
-  assert.match(styles, /\.metric-strip\s*\{[\s\S]*grid-template-columns:\s*repeat\(5,\s*minmax\(118px,\s*1fr\)\)/);
-  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*\.metric-strip\s*\{[\s\S]*grid-template-columns:\s*1fr/);
+  assert.match(styles, /\.compact-metric-strip\s*\{[\s\S]*grid-template-columns:\s*repeat\(6,\s*minmax\(110px,\s*1fr\)\)/);
+  assert.match(styles, /@media \(max-width: 640px\)[\s\S]*\.compact-metric-strip\s*\{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
 });
 
 test("cards avoid colored left-rail accents", () => {

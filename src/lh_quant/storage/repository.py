@@ -28,6 +28,13 @@ def save_market_bars(
     adjust: str,
     requested_start: str | None = None,
     requested_end: str | None = None,
+    requested_provider: str | None = None,
+    source_detail: str | None = None,
+    raw_symbol: str | None = None,
+    normalized_symbol: str | None = None,
+    data_version: str | None = None,
+    fetched_at: str | datetime | None = None,
+    fallback_chain: list[dict[str, Any]] | None = None,
 ) -> int:
     """保存标准 K线数据和本次下载覆盖区间，供后续缓存完整性校验。"""
 
@@ -84,6 +91,13 @@ def save_market_bars(
                 start_date=ingestion_start,
                 end_date=ingestion_end,
                 row_count=len(records),
+                requested_provider=requested_provider,
+                source_detail=source_detail,
+                raw_symbol=raw_symbol,
+                normalized_symbol=normalized_symbol,
+                data_version=data_version,
+                fetched_at=_optional_datetime(fetched_at),
+                fallback_chain=fallback_chain or [],
             )
         )
 
@@ -176,6 +190,8 @@ def save_backtest_run(
     bars: pd.DataFrame | None = None,
     data_source_detail: str | None = None,
     data_version: str | None = None,
+    requested_provider: str | None = None,
+    fallback_chain: list[dict[str, Any]] | None = None,
     strategy_version: str | None = None,
     engine_version: str | None = None,
     engine_assumptions: dict[str, Any] | None = None,
@@ -192,6 +208,7 @@ def save_backtest_run(
                 strategy_id=strategy_id,
                 strategy_name=strategy_name,
                 provider=provider,
+                requested_provider=requested_provider,
                 start_date=pd.Timestamp(start).date(),
                 end_date=pd.Timestamp(end).date(),
                 params=params,
@@ -199,6 +216,7 @@ def save_backtest_run(
                 logs=logs,
                 data_source_detail=data_source_detail,
                 data_version=data_version,
+                fallback_chain=fallback_chain or [],
                 strategy_version=strategy_version,
                 engine_version=engine_version,
                 engine_assumptions=engine_assumptions,
@@ -237,6 +255,8 @@ def list_backtest_runs(engine: Engine, limit: int = 20) -> list[dict[str, Any]]:
             "strategyId": row["strategy_id"],
             "strategyName": row["strategy_name"],
             "provider": row["provider"],
+            "requestedProvider": row.get("requested_provider"),
+            "actualProvider": row["provider"],
             "start": str(row["start_date"]),
             "end": str(row["end_date"]),
             "params": row["params"],
@@ -244,6 +264,7 @@ def list_backtest_runs(engine: Engine, limit: int = 20) -> list[dict[str, Any]]:
             "logs": row["logs"],
             "dataSourceDetail": row.get("data_source_detail"),
             "dataVersion": row.get("data_version"),
+            "fallbackChain": row.get("fallback_chain") or [],
             "strategyVersion": row.get("strategy_version"),
             "engineVersion": row.get("engine_version"),
             "engineAssumptions": row.get("engine_assumptions") or {},
@@ -291,6 +312,8 @@ def load_backtest_run_detail(engine: Engine, run_id: str) -> dict[str, Any] | No
             "strategyId": run["strategy_id"],
             "strategyName": run["strategy_name"],
             "provider": run["provider"],
+            "requestedProvider": run.get("requested_provider"),
+            "actualProvider": run["provider"],
             "start": str(run["start_date"]),
             "end": str(run["end_date"]),
             "params": run["params"],
@@ -298,6 +321,7 @@ def load_backtest_run_detail(engine: Engine, run_id: str) -> dict[str, Any] | No
             "logs": run["logs"],
             "dataSourceDetail": run.get("data_source_detail"),
             "dataVersion": run.get("data_version"),
+            "fallbackChain": run.get("fallback_chain") or [],
             "strategyVersion": run.get("strategy_version"),
             "engineVersion": run.get("engine_version"),
             "engineAssumptions": run.get("engine_assumptions") or {},
@@ -342,6 +366,16 @@ def _new_run_id() -> str:
     """生成按时间排序的回测运行编号。"""
 
     return f"bt_{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}"
+
+
+def _optional_datetime(value: str | datetime | None) -> datetime | None:
+    """把可选 ISO 字符串转换成数据库可保存的 datetime。"""
+
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(value)
 
 
 def _trade_records(run_id: str, trades: pd.DataFrame) -> list[dict[str, Any]]:

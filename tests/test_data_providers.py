@@ -3,7 +3,11 @@ from __future__ import annotations
 import pandas as pd
 
 from lh_quant.data.akshare_provider import download_akshare_bars
-from lh_quant.data.providers import AkShareMarketDataProvider, MarketDataResult
+from lh_quant.data.providers import (
+    AkShareMarketDataProvider,
+    MarketDataResult,
+    provider_chain_for,
+)
 
 
 class _AkshareFallbackStub:
@@ -47,6 +51,21 @@ def test_akshare_market_data_provider_returns_metadata() -> None:
 
     assert isinstance(result, MarketDataResult)
     assert result.provider == "AKShare"
+    assert result.actual_provider == "AKShare"
+    assert result.requested_provider == "akshare"
     assert result.source_detail
     assert result.version.startswith("akshare:")
+    assert result.data_version.startswith("akshare:")
     assert len(result.bars) == 2
+
+
+def test_provider_chain_uses_tushare_first_for_unadjusted_auto_requests() -> None:
+    assert provider_chain_for("auto", "") == ["tushare", "akshare", "yahoo"]
+
+
+def test_provider_chain_skips_tushare_for_adjusted_auto_requests() -> None:
+    assert provider_chain_for("auto", "qfq") == ["akshare", "yahoo"]
+
+
+def test_provider_chain_keeps_explicit_provider_isolated() -> None:
+    assert provider_chain_for("akshare", "qfq") == ["akshare"]
