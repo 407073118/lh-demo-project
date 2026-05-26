@@ -269,6 +269,22 @@ test("backtest workspace does not show the platform overview strip", () => {
   assert.doesNotMatch(app, /isResultWorkspace \? null : <PlatformOverview/);
 });
 
+test("backtest requests expose an explicit market data provider selector", () => {
+  const app = read("src/App.tsx");
+  const api = read("src/api.ts");
+  const config = read("src/features/config/WorkbenchConfigSections.tsx");
+  const lineage = read("src/features/results/DataLineagePanel.tsx");
+
+  assert.match(api, /export type DataProviderId = "auto" \| "tushare" \| "akshare" \| "yahoo"/);
+  assert.match(app, /dataProvider:\s*"auto"/);
+  assert.match(config, /数据来源/);
+  assert.match(config, /<option value="auto">自动<\/option>/);
+  assert.match(config, /<option value="tushare">Tushare<\/option>/);
+  assert.match(lineage, /请求来源/);
+  assert.match(lineage, /实际来源/);
+  assert.match(lineage, /formatFallbackChain/);
+});
+
 test("desktop dashboard keeps primary metrics scannable in one row", () => {
   const styles = read("src/styles.css");
 

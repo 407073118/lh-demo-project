@@ -53,6 +53,15 @@ export type StrategyParamValue = number | string | boolean;
 
 export type StrategyParams = Record<string, StrategyParamValue>;
 
+export type DataProviderId = "auto" | "tushare" | "akshare" | "yahoo";
+
+export type ProviderAttempt = {
+  provider: string;
+  status: string;
+  reason?: string;
+  sourceDetail?: string;
+};
+
 export type BacktestRequest = {
   symbol: string;
   start: string;
@@ -62,6 +71,7 @@ export type BacktestRequest = {
   cash: number;
   commissionRate: number;
   adjust: string;
+  dataProvider: DataProviderId;
 };
 
 export type BarRecord = {
@@ -228,6 +238,8 @@ export type BacktestResponse = {
   };
   dataSource: {
     provider: string;
+    requestedProvider?: string;
+    actualProvider?: string;
     frequency: string;
     adjust: string;
     start: string;
@@ -235,6 +247,7 @@ export type BacktestResponse = {
     cached: boolean;
     sourceDetail?: string;
     dataVersion?: string;
+    fallbackChain?: ProviderAttempt[];
     coverage?: {
       status: "complete" | "missing" | "unknown";
       expectedRows: number | null;
@@ -308,6 +321,9 @@ export type RunSummary = {
   params: Record<string, unknown>;
   dataSourceDetail?: string | null;
   dataVersion?: string | null;
+  requestedProvider?: string | null;
+  actualProvider?: string | null;
+  fallbackChain?: ProviderAttempt[];
   strategyVersion?: string | null;
   engineVersion?: string | null;
   engineAssumptions?: Record<string, string>;

@@ -377,10 +377,21 @@ function backtestPayload() {
         strategyParams: { fastWindow: 5, slowWindow: 20 },
         cash: 100000,
         commissionRate: 0.001,
-        adjust: "qfq"
+        adjust: "qfq",
+        dataProvider: "auto"
       }
     },
-    dataSource: { provider: "AKShare", frequency: "1d", adjust: "qfq", start: "2024-01-01", end: "2024-01-24", cached: false },
+    dataSource: {
+      provider: "AKShare",
+      requestedProvider: "auto",
+      actualProvider: "AKShare",
+      frequency: "1d",
+      adjust: "qfq",
+      start: "2024-01-01",
+      end: "2024-01-24",
+      cached: false,
+      fallbackChain: []
+    },
     database: healthPayload().database,
     metrics: {
       startingCash: 100000,

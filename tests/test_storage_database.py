@@ -31,6 +31,7 @@ from lh_quant.storage.schema import (
     factor_values,
     instruments,
     market_bars,
+    market_data_ingestions,
     metadata,
     strategy_sources,
     sync_jobs,
@@ -67,6 +68,39 @@ def test_storage_saves_and_loads_market_bars(tmp_path: Path) -> None:
     assert len(loaded) == 12
     assert loaded["symbol"].tolist() == ["000001"] * 12
     assert loaded["close"].tolist() == bars["close"].tolist()
+
+
+def test_storage_persists_market_data_lineage(tmp_path: Path) -> None:
+    engine = create_database_engine(f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}")
+    initialize_database(engine)
+    bars = generate_sample_bars(symbol="000001", periods=12)
+
+    save_market_bars(
+        engine=engine,
+        bars=bars,
+        provider="AKShare",
+        symbol="000001",
+        frequency="1d",
+        adjust="qfq",
+        requested_provider="auto",
+        source_detail="AKShare 测试接口",
+        raw_symbol="000001",
+        normalized_symbol="000001",
+        data_version="akshare:test",
+        fetched_at="2024-01-01T00:00:00+00:00",
+        fallback_chain=[{"provider": "AKShare", "status": "succeeded"}],
+    )
+
+    with engine.begin() as connection:
+        row = connection.execute(market_data_ingestions.select()).mappings().first()
+
+    assert row["requested_provider"] == "auto"
+    assert row["provider"] == "AKShare"
+    assert row["source_detail"] == "AKShare 测试接口"
+    assert row["raw_symbol"] == "000001"
+    assert row["normalized_symbol"] == "000001"
+    assert row["data_version"] == "akshare:test"
+    assert row["fallback_chain"][0]["provider"] == "AKShare"
 
 
 def test_market_bars_numeric_columns_use_double_precision() -> None:
@@ -209,6 +243,8 @@ def test_initialize_database_adds_missing_nullable_columns_to_existing_tables(
     assert {
         "data_source_detail",
         "data_version",
+        "requested_provider",
+        "fallback_chain",
         "strategy_version",
         "engine_version",
         "engine_assumptions",
@@ -242,6 +278,38 @@ def test_storage_saves_backtest_run_summary(tmp_path: Path) -> None:
     assert runs[0]["symbol"] == "000001"
     assert runs[0]["strategyName"] == "双均线策略"
     assert runs[0]["metrics"]["trade_count"] == result.metrics["trade_count"]
+
+
+def test_storage_saves_backtest_run_lineage(tmp_path: Path) -> None:
+    engine = create_database_engine(f"sqlite+pysqlite:///{tmp_path / 'lh_quant.db'}")
+    initialize_database(engine)
+    bars = generate_sample_bars(symbol="000001", periods=80)
+    signals = moving_average_cross_signals(bars, fast_window=5, slow_window=20)
+    result = run_signal_backtest(bars, signals, cash=100_000)
+
+    run_id = save_backtest_run(
+        engine=engine,
+        symbol="000001",
+        strategy_id="moving_average",
+        strategy_name="双均线策略",
+        provider="AKShare",
+        requested_provider="auto",
+        start="2024-01-01",
+        end="2024-06-30",
+        params={"fastWindow": 5, "slowWindow": 20, "cash": 100_000},
+        metrics=result.metrics,
+        logs=["回测完成"],
+        data_source_detail="AKShare 测试接口",
+        data_version="akshare:test",
+        fallback_chain=[{"provider": "AKShare", "status": "succeeded"}],
+    )
+
+    detail = load_backtest_run_detail(engine, run_id)
+
+    assert detail is not None
+    assert detail["summary"]["requestedProvider"] == "auto"
+    assert detail["summary"]["actualProvider"] == "AKShare"
+    assert detail["summary"]["fallbackChain"][0]["provider"] == "AKShare"
 
 
 def test_storage_lists_backtest_runs_with_stable_tiebreaker(tmp_path: Path) -> None:

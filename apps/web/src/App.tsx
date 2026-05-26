@@ -64,7 +64,8 @@ const initialRequest: BacktestRequest = {
   strategyParams: defaultStrategyParams,
   cash: 100000,
   commissionRate: 0.001,
-  adjust: "qfq"
+  adjust: "qfq",
+  dataProvider: "auto"
 };
 
 type ConnectionState = "checking" | "online" | "offline";
@@ -496,7 +497,9 @@ function buildResultFromPersistedDetail(detail: PersistedRunDetail): BacktestRes
       params: request
     },
     dataSource: {
-      provider: detail.summary.provider,
+      provider: detail.summary.actualProvider ?? detail.summary.provider,
+      requestedProvider: detail.summary.requestedProvider ?? "auto",
+      actualProvider: detail.summary.actualProvider ?? detail.summary.provider,
       frequency: "1d",
       adjust: request.adjust,
       start: detail.summary.start,
@@ -504,6 +507,7 @@ function buildResultFromPersistedDetail(detail: PersistedRunDetail): BacktestRes
       cached: true,
       sourceDetail: detail.summary.dataSourceDetail ?? "persisted run",
       dataVersion: detail.summary.dataVersion ?? "unknown",
+      fallbackChain: detail.summary.fallbackChain ?? [],
       coverage: {
         status: "unknown",
         expectedRows: null,
@@ -538,7 +542,14 @@ function requestFromRunSummary(summary: RunSummary): BacktestRequest {
       : strategyParamsFromRecord(summary.params),
     cash: typeof raw?.cash === "number" ? raw.cash : summary.metrics.starting_cash ?? 100000,
     commissionRate: typeof raw?.commissionRate === "number" ? raw.commissionRate : 0.001,
-    adjust: typeof raw?.adjust === "string" ? raw.adjust : "qfq"
+    adjust: typeof raw?.adjust === "string" ? raw.adjust : "qfq",
+    dataProvider:
+      raw?.dataProvider === "tushare" ||
+      raw?.dataProvider === "akshare" ||
+      raw?.dataProvider === "yahoo" ||
+      raw?.dataProvider === "auto"
+        ? raw.dataProvider
+        : "auto"
   };
 }
 

@@ -11,7 +11,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
 
 from lh_quant.backtest.engine import BacktestResult, run_signal_backtest
-from lh_quant.data.akshare_provider import AkShareDataError, download_akshare_bars
+from lh_quant.data.providers import (
+    MarketDataProviderError,
+    build_market_data_provider,
+    normalize_provider_id,
+    provider_chain_for,
+    provider_display_name,
+)
 from lh_quant.factors.registry import get_factor_specs
 from lh_quant.storage.data_repository import (
     get_data_asset_detail,
@@ -71,6 +77,7 @@ class MovingAverageBacktestRequest(BaseModel):
     cash: float = Field(default=100_000.0, gt=0, description="初始资金")
     commissionRate: float = Field(default=0.001, ge=0, lt=1, description="单边手续费率")
     adjust: str = Field(default="qfq", description="复权方式")
+    dataProvider: str = Field(default="auto", description="行情数据来源：auto/tushare/akshare/yahoo")
 
     @model_validator(mode="after")
     def validate_windows(self) -> MovingAverageBacktestRequest:
@@ -93,6 +100,7 @@ class BacktestRunRequest(BaseModel):
     cash: float = Field(default=100_000.0, gt=0, description="初始资金")
     commissionRate: float = Field(default=0.001, ge=0, lt=1, description="单边手续费率")
     adjust: str = Field(default="qfq", description="复权方式")
+    dataProvider: str = Field(default="auto", description="行情数据来源：auto/tushare/akshare/yahoo")
 
     @model_validator(mode="after")
     def validate_date_range(self) -> BacktestRunRequest:
@@ -291,6 +299,7 @@ def create_app(database_url: str | None = None) -> FastAPI:
             cash=request.cash,
             commissionRate=request.commissionRate,
             adjust=request.adjust,
+            dataProvider=request.dataProvider,
         )
         return _run_strategy_backtest(application, database_url, generic_request)
 
@@ -314,9 +323,10 @@ def _run_strategy_backtest(
     try:
         strategy = get_strategy_definition(request.strategyId)
         strategy_params = normalize_strategy_params(request.strategyId, request.strategyParams)
-        bars, provider, cached, data_logs, data_lineage = _get_a_share_bars(
+        bars, provider, cached, data_logs, data_lineage = _get_market_bars(
             engine=application.state.db_engine,
             db_status=application.state.db_status,
+            requested_provider=request.dataProvider,
             symbol=request.symbol,
             start=request.start,
             end=request.end,
@@ -330,7 +340,7 @@ def _run_strategy_backtest(
             cash=request.cash,
             commission_rate=request.commissionRate,
         )
-    except (AkShareDataError, ValueError) as error:
+    except (MarketDataProviderError, ValueError) as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
     payload = _build_backtest_payload(
@@ -364,6 +374,8 @@ def _run_strategy_backtest(
         bars=bars,
         data_source_detail=data_lineage["sourceDetail"],
         data_version=data_lineage["dataVersion"],
+        requested_provider=data_lineage["requestedProvider"],
+        fallback_chain=data_lineage["fallbackChain"],
         strategy_version=strategy.version,
         engine_version=data_lineage["engineVersion"],
         engine_assumptions=data_lineage["engineAssumptions"],
@@ -499,6 +511,8 @@ def _persisted_detail_to_backtest_result(
 
     summary = detail["summary"]
     request = _request_from_run_summary(summary)
+    requested_provider = summary.get("requestedProvider") or request.get("dataProvider") or "auto"
+    actual_provider = summary.get("actualProvider") or summary["provider"]
     return {
         "runId": detail["runId"],
         "symbol": summary["symbol"],
@@ -508,7 +522,9 @@ def _persisted_detail_to_backtest_result(
             "params": request,
         },
         "dataSource": {
-            "provider": summary["provider"],
+            "provider": actual_provider,
+            "requestedProvider": requested_provider,
+            "actualProvider": actual_provider,
             "frequency": "1d",
             "adjust": request["adjust"],
             "start": summary["start"],
@@ -516,6 +532,7 @@ def _persisted_detail_to_backtest_result(
             "cached": True,
             "sourceDetail": summary.get("dataSourceDetail") or "persisted run",
             "dataVersion": summary.get("dataVersion") or "unknown",
+            "fallbackChain": summary.get("fallbackChain") or [],
             "coverage": {
                 "status": "unknown",
                 "expectedRows": None,
@@ -561,6 +578,10 @@ def _request_from_run_summary(summary: dict[str, Any]) -> dict[str, Any]:
         "cash": cash if isinstance(cash, (int, float)) else 100_000.0,
         "commissionRate": commission_rate if isinstance(commission_rate, (int, float)) else 0.001,
         "adjust": raw_params.get("adjust", "qfq"),
+        "dataProvider": raw_params.get(
+            "dataProvider",
+            summary.get("requestedProvider") or "auto",
+        ),
     }
 
 
@@ -698,10 +719,13 @@ def _build_backtest_payload(
                 "cash": request.cash,
                 "commissionRate": request.commissionRate,
                 "adjust": request.adjust,
+                "dataProvider": request.dataProvider,
             },
         },
         "dataSource": {
             "provider": provider,
+            "requestedProvider": data_lineage["requestedProvider"],
+            "actualProvider": data_lineage["actualProvider"],
             "frequency": "1d",
             "adjust": request.adjust,
             "start": request.start,
@@ -709,6 +733,7 @@ def _build_backtest_payload(
             "cached": cached,
             "sourceDetail": data_lineage["sourceDetail"],
             "dataVersion": data_lineage["dataVersion"],
+            "fallbackChain": data_lineage["fallbackChain"],
             "coverage": data_lineage["coverage"],
             "engineVersion": data_lineage["engineVersion"],
             "engineAssumptions": data_lineage["engineAssumptions"],
@@ -730,90 +755,147 @@ def _build_backtest_payload(
     }
 
 
-def _get_a_share_bars(
+def _get_market_bars(
     engine: Any,
     db_status: DatabaseStatus,
+    requested_provider: str,
     symbol: str,
     start: str,
     end: str,
     adjust: str,
 ) -> tuple[pd.DataFrame, str, bool, list[str], dict[str, Any]]:
-    """优先使用 AKShare 的完整缓存，未命中时下载并强制写入数据库。"""
+    """按用户选择的数据源读取缓存或下载，并记录完整来源血缘。"""
 
     if not db_status.connected:
         raise ValueError("数据库未连接，不能运行需要落库审计的回测")
 
-    cached_akshare = load_market_bars(
-        engine=engine,
-        provider="AKShare",
-        symbol=symbol,
-        frequency="1d",
-        adjust=adjust,
-        start=start,
-        end=end,
-    )
-    if cached_akshare is not None:
-        coverage = inspect_market_bar_coverage(
-            engine,
-            provider="AKShare",
+    normalized_requested = normalize_provider_id(requested_provider)
+    if normalized_requested == "tushare" and adjust:
+        raise MarketDataProviderError("第一版暂不支持 Tushare 复权，请选择不复权或切换 AKShare")
+
+    fallback_chain: list[dict[str, str]] = []
+    errors: list[str] = []
+    for provider_id in provider_chain_for(normalized_requested, adjust):
+        provider_name = provider_display_name(provider_id)
+        cached = load_market_bars(
+            engine=engine,
+            provider=provider_name,
             symbol=symbol,
-            exchange=_exchange_for_symbol(symbol),
             frequency="1d",
             adjust=adjust,
             start=start,
             end=end,
         )
+        if cached is not None:
+            attempt = {
+                "provider": provider_name,
+                "status": "cache_hit",
+                "sourceDetail": "database cache",
+            }
+            chain = [*fallback_chain, attempt]
+            coverage = inspect_market_bar_coverage(
+                engine,
+                provider=provider_name,
+                symbol=symbol,
+                exchange=_exchange_for_symbol(symbol),
+                frequency="1d",
+                adjust=adjust,
+                start=start,
+                end=end,
+            )
+            lineage = _data_lineage_json(
+                requested_provider=normalized_requested,
+                actual_provider=provider_name,
+                source_detail="database cache",
+                data_version="cache:market_bars",
+                fallback_chain=chain,
+                coverage=coverage.to_json(),
+            )
+            return cached, provider_name, True, [f"已从数据库读取 {provider_name} A股日线缓存"], lineage
+
+        try:
+            provider = build_market_data_provider(provider_id)
+            result = provider.download_bars(symbol=symbol, start=start, end=end, adjust=adjust)
+        except Exception as error:
+            reason = str(error)
+            fallback_chain.append(
+                {
+                    "provider": provider_name,
+                    "status": "failed",
+                    "reason": reason,
+                }
+            )
+            errors.append(f"{provider_name}: {reason}")
+            if normalized_requested != "auto":
+                raise MarketDataProviderError(reason) from error
+            continue
+
+        chain = [
+            *fallback_chain,
+            {
+                "provider": result.actual_provider,
+                "status": "succeeded",
+                "sourceDetail": result.source_detail,
+            },
+        ]
+        logs = [f"已通过 {result.source_detail} 读取 A股日线数据"]
+        saved = save_market_bars(
+            engine=engine,
+            bars=result.bars,
+            provider=result.actual_provider,
+            symbol=symbol,
+            frequency=result.frequency,
+            adjust=adjust,
+            requested_start=start,
+            requested_end=end,
+            requested_provider=normalized_requested,
+            source_detail=result.source_detail,
+            raw_symbol=result.raw_symbol,
+            normalized_symbol=result.normalized_symbol,
+            data_version=result.data_version,
+            fetched_at=result.fetched_at,
+            fallback_chain=chain,
+        )
+        logs.append(f"已保存 {saved} 根日K线到数据库")
+        coverage = inspect_market_bar_coverage(
+            engine,
+            provider=result.actual_provider,
+            symbol=symbol,
+            exchange=_exchange_for_symbol(symbol),
+            frequency=result.frequency,
+            adjust=adjust,
+            start=start,
+            end=end,
+        )
         lineage = _data_lineage_json(
-            source_detail="database cache",
-            data_version="cache:market_bars",
+            requested_provider=normalized_requested,
+            actual_provider=result.actual_provider,
+            source_detail=result.source_detail,
+            data_version=result.data_version,
+            fallback_chain=chain,
             coverage=coverage.to_json(),
         )
-        return cached_akshare, "AKShare", True, ["已从数据库读取 AKShare A股日线缓存"], lineage
+        return result.bars, result.actual_provider, False, logs, lineage
 
-    bars = download_akshare_bars(symbol=symbol, start=start, end=end, adjust=adjust)
-    provider = "AKShare"
-    source_detail = str(bars.attrs.get("source_detail", "AKShare"))
-    logs = [f"已通过 {source_detail} 读取 A股日线数据"]
-
-    saved = save_market_bars(
-        engine=engine,
-        bars=bars,
-        provider=provider,
-        symbol=symbol,
-        frequency="1d",
-        adjust=adjust,
-        requested_start=start,
-        requested_end=end,
-    )
-    logs.append(f"已保存 {saved} 根日K线到数据库")
-    coverage = inspect_market_bar_coverage(
-        engine,
-        provider=provider,
-        symbol=symbol,
-        exchange=_exchange_for_symbol(symbol),
-        frequency="1d",
-        adjust=adjust,
-        start=start,
-        end=end,
-    )
-    lineage = _data_lineage_json(
-        source_detail=source_detail,
-        data_version=str(bars.attrs.get("data_version", "akshare:runtime")),
-        coverage=coverage.to_json(),
-    )
-    return bars, provider, False, logs, lineage
+    raise MarketDataProviderError("所有行情数据源均不可用：" + "；".join(errors))
 
 
 def _data_lineage_json(
+    requested_provider: str,
+    actual_provider: str,
     source_detail: str,
     data_version: str,
+    fallback_chain: list[dict[str, str]],
     coverage: dict[str, Any],
 ) -> dict[str, Any]:
     """生成回测结果使用的数据血缘摘要。"""
 
     return {
+        "requestedProvider": requested_provider,
+        "actualProvider": actual_provider,
         "sourceDetail": source_detail,
         "dataVersion": data_version,
+        "fallbackChain": fallback_chain,
         "coverage": coverage,
         "engineVersion": "signal-close-v1",
         "engineAssumptions": _engine_assumptions_json(),

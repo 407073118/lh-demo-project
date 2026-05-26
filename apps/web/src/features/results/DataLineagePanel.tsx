@@ -6,9 +6,11 @@ export function DataLineagePanel({ result }: { result: BacktestResponse }) {
     ["运行编号", result.runId ?? "未落库"],
     ["策略", result.strategy.name],
     ["策略 ID", result.strategy.id],
-    ["数据来源", result.dataSource.provider],
+    ["请求来源", result.dataSource.requestedProvider ?? result.strategy.params.dataProvider ?? "auto"],
+    ["实际来源", result.dataSource.actualProvider ?? result.dataSource.provider],
     ["数据接口", result.dataSource.sourceDetail ?? "unknown"],
     ["数据版本", result.dataSource.dataVersion ?? "unknown"],
+    ["Fallback", formatFallbackChain(result.dataSource.fallbackChain ?? [])],
     ["覆盖质量", result.dataSource.coverage?.status ?? "unknown"],
     ["引擎版本", result.dataSource.engineVersion ?? "signal-close-v1"],
     ["数据频率", result.dataSource.frequency],
@@ -50,6 +52,18 @@ function formatStrategyParams(params: StrategyParams): string {
 
 function formatStrategyParamValue(value: StrategyParams[string]): string {
   return typeof value === "number" ? formatNumber(value) : String(value);
+}
+
+function formatFallbackChain(chain: NonNullable<BacktestResponse["dataSource"]["fallbackChain"]>): string {
+  if (chain.length === 0) {
+    return "无";
+  }
+  return chain
+    .map((attempt) => {
+      const detail = attempt.reason ?? attempt.sourceDetail;
+      return detail ? `${attempt.provider}:${attempt.status}(${detail})` : `${attempt.provider}:${attempt.status}`;
+    })
+    .join(" / ");
 }
 
 function strategyParamName(key: string): string {
