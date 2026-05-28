@@ -167,6 +167,21 @@ test("platform console has a quant IDE navigation, resource tree, editor, and ru
   assert.doesNotMatch(app, /<LifecycleRail/);
 });
 
+test("editing workspace opens with an explicit research flow and run ticket summary", () => {
+  const app = read("src/App.tsx");
+  const styles = read("src/styles.css");
+
+  assert.match(app, /ResearchStageStrip/);
+  assert.match(app, /RunTicketSummary/);
+  assert.match(app, /data-testid="research-stage-strip"/);
+  assert.match(app, /providerLabel/);
+  assert.match(styles, /\.research-stage-strip/);
+  assert.match(styles, /\.stage-items/);
+  assert.match(styles, /\.run-ticket-summary/);
+  assert.match(styles, /\.research-checklist/);
+  assert.match(styles, /\.workbench-context-chips/);
+});
+
 test("data assets and strategy library workspaces are wired to real APIs", () => {
   const app = read("src/App.tsx");
   const api = read("src/api.ts");
@@ -282,7 +297,8 @@ test("editing workspace keeps dense columns while result mode prioritizes result
   assert.doesNotMatch(styles, /grid-template-columns:\s*292px minmax\(680px,\s*1fr\) 276px/);
   assert.doesNotMatch(styles, /\.dashboard-chart-grid\s*\{[\s\S]*minmax\(360px/);
   assert.match(app, /result \? \(\s*<>\s*<ResultDashboard/);
-  assert.match(app, /: \(\s*<>\s*<ResearchWorkbench/);
+  assert.match(app, /: \(\s*<>\s*<ResearchStageStrip/);
+  assert.match(app, /<ResearchWorkbench/);
 });
 
 test("editing workspace uses IDE output tabs instead of a fake pre-run chart preview", () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
@@ -15,7 +15,7 @@ test("dashboard renders with mocked API data in a real browser", { timeout: 9000
   let browser;
   try {
     await waitForServer(`${baseUrl}/`);
-    browser = await chromium.launch({ headless: true, executablePath: chromium.executablePath() });
+    browser = await chromium.launch(browserLaunchOptions());
     const page = await browser.newPage({ viewport: { width: 1366, height: 900 } });
     await mockApi(page);
 
@@ -96,6 +96,18 @@ test("dashboard renders with mocked API data in a real browser", { timeout: 9000
     await stopViteServer(server);
   }
 });
+
+function browserLaunchOptions() {
+  const bundledChromium = chromium.executablePath();
+  if (existsSync(bundledChromium)) {
+    return { headless: true, executablePath: bundledChromium };
+  }
+  const edgePath = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+  if (process.platform === "win32" && existsSync(edgePath)) {
+    return { headless: true, executablePath: edgePath };
+  }
+  return { headless: true };
+}
 
 async function assertResultLayout(page, width) {
   const layout = await page.evaluate(() => {

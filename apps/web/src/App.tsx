@@ -406,11 +406,20 @@ export default function App() {
                 </>
               ) : (
                 <>
+                  <ResearchStageStrip
+                    form={form}
+                    selectedStrategy={selectedStrategy}
+                    currentJob={currentJob}
+                    databaseReady={databaseReady}
+                    validationError={validationError}
+                  />
                   <ResearchWorkbench
                     form={form}
                     selectedStrategy={selectedStrategy}
                     result={result}
                     currentJob={currentJob}
+                    databaseReady={databaseReady}
+                    validationError={validationError}
                   />
                   <RunOutputPanel
                     form={form}
@@ -882,6 +891,12 @@ function RunSetupPanel({
       )}
 
       <form className="run-setup-form" onSubmit={onSubmit}>
+        <RunTicketSummary
+          form={form}
+          selectedStrategy={selectedStrategy}
+          databaseReady={databaseReady}
+          validationError={validationError}
+        />
         <UniverseDataSection form={form} setForm={setForm} />
         <StrategyConfigSection
           strategies={strategies}
@@ -929,31 +944,160 @@ function RunSetupPanel({
   );
 }
 
+function RunTicketSummary({
+  form,
+  selectedStrategy,
+  databaseReady,
+  validationError
+}: {
+  form: BacktestRequest;
+  selectedStrategy: StrategyDefinition | null;
+  databaseReady: boolean;
+  validationError: string | null;
+}) {
+  const readyLabel = validationError ? "待修正" : databaseReady ? "可提交" : "待连接";
+  return (
+    <section className="run-ticket-summary" aria-label="运行工单摘要">
+      <div className="ticket-heading">
+        <span>回测工单</span>
+        <strong>{readyLabel}</strong>
+      </div>
+      <dl>
+        <div>
+          <dt>标的</dt>
+          <dd>{form.symbol}</dd>
+        </div>
+        <div>
+          <dt>策略</dt>
+          <dd>{selectedStrategy?.name ?? form.strategyId}</dd>
+        </div>
+        <div>
+          <dt>数据</dt>
+          <dd>{providerLabel(form.dataProvider)} · {adjustLabel(form.adjust)}</dd>
+        </div>
+        <div>
+          <dt>资金</dt>
+          <dd>{Math.round(form.cash).toLocaleString("zh-CN")}</dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+function ResearchStageStrip({
+  form,
+  selectedStrategy,
+  currentJob,
+  databaseReady,
+  validationError
+}: {
+  form: BacktestRequest;
+  selectedStrategy: StrategyDefinition | null;
+  currentJob: BacktestJob | null;
+  databaseReady: boolean;
+  validationError: string | null;
+}) {
+  const jobLabel = currentJob?.status ? jobStatusText(currentJob.status, false) : "待提交";
+  const stages = [
+    {
+      label: "01",
+      title: "数据",
+      detail: databaseReady ? `${providerLabel(form.dataProvider)} 已就绪` : "等待数据库连接",
+      state: databaseReady ? "done" : "blocked"
+    },
+    {
+      label: "02",
+      title: "策略",
+      detail: selectedStrategy?.name ?? "加载策略模板",
+      state: selectedStrategy ? "done" : "blocked"
+    },
+    {
+      label: "03",
+      title: "参数",
+      detail: validationError ?? `${form.start} 至 ${form.end}`,
+      state: validationError ? "blocked" : "active"
+    },
+    {
+      label: "04",
+      title: "回测",
+      detail: jobLabel,
+      state: currentJob?.status === "running" ? "active" : currentJob?.status === "succeeded" ? "done" : "idle"
+    },
+    {
+      label: "05",
+      title: "报告",
+      detail: "生成后进入结果复盘",
+      state: "idle"
+    }
+  ];
+
+  return (
+    <section className="research-stage-strip" data-testid="research-stage-strip" aria-label="研究流程">
+      <div className="stage-strip-title">
+        <span>Research Flow</span>
+        <strong>{form.symbol} · {selectedStrategy?.category ?? "策略研究"}</strong>
+      </div>
+      <div className="stage-items">
+        {stages.map((stage) => (
+          <div className={`stage-item ${stage.state}`} key={stage.label}>
+            <span>{stage.label}</span>
+            <strong>{stage.title}</strong>
+            <em>{stage.detail}</em>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ResearchWorkbench({
   form,
   selectedStrategy,
   result,
-  currentJob
+  currentJob,
+  databaseReady,
+  validationError
 }: {
   form: BacktestRequest;
   selectedStrategy: StrategyDefinition | null;
   result: BacktestResponse | null;
   currentJob: BacktestJob | null;
+  databaseReady: boolean;
+  validationError: string | null;
 }) {
   const strategyName = selectedStrategy?.name ?? form.strategyId;
+  const paramSummary = selectedStrategy
+    ? selectedStrategy.params
+        .map((param) => {
+          const value = form.strategyParams[param.key] ?? param.default;
+          return `${param.label} ${value}${param.unit ?? ""}`;
+        })
+        .join(" / ")
+    : "策略参数加载中";
+  const readiness = validationError ? "参数待修正" : databaseReady ? "可提交回测" : "等待数据连接";
   const codeLines = [
     "from jqdata import *",
-    `set_benchmark('${form.symbol}')`,
-    `run_strategy('${form.strategyId}', symbol='${form.symbol}')`,
-    `set_cash(${Math.round(form.cash)})`,
-    `set_commission(${form.commissionRate})`
+    "",
+    "def initialize(context):",
+    `    set_benchmark('${form.symbol}')`,
+    `    set_cash(${Math.round(form.cash)})`,
+    `    set_commission(${form.commissionRate})`,
+    "",
+    "def handle_bar(context, data):",
+    `    run_strategy('${form.strategyId}', symbol='${form.symbol}')`,
+    "    record(signal=context.signal, position=context.position)"
   ];
   return (
-    <section className="research-workbench" data-testid="research-workbench">
+    <section className="research-workbench research-command-center" data-testid="research-workbench">
       <div className="workbench-toolbar">
         <div>
-          <span>研究</span>
+          <span>策略研究室</span>
           <strong>{strategyName}</strong>
+        </div>
+        <div className="workbench-context-chips" aria-label="当前研究上下文">
+          <span>{form.symbol}</span>
+          <span>{providerLabel(form.dataProvider)}</span>
+          <span>{readiness}</span>
         </div>
         <div className="workbench-actions" aria-label="研究动作">
           <button type="button">保存</button>
@@ -972,24 +1116,46 @@ function ResearchWorkbench({
             {codeLines.map((line, index) => `${String(index + 1).padStart(2, "0")}  ${line}`).join("\n")}
           </pre>
         </div>
-        <div className="research-snapshot">
-          <div>
-            <span>标的</span>
-            <strong>{form.symbol}</strong>
+        <aside className="research-inspector-stack" aria-label="策略检查">
+          <div className="research-snapshot">
+            <div>
+              <span>标的</span>
+              <strong>{form.symbol}</strong>
+            </div>
+            <div>
+              <span>区间</span>
+              <strong>{form.start} 至 {form.end}</strong>
+            </div>
+            <div>
+              <span>任务</span>
+              <strong>{currentJob?.status ? jobStatusText(currentJob.status, false) : "待提交"}</strong>
+            </div>
+            <div>
+              <span>累计收益</span>
+              <strong>{result ? formatPercent(result.metrics.totalReturn) : "--"}</strong>
+            </div>
           </div>
-          <div>
-            <span>区间</span>
-            <strong>{form.start} 至 {form.end}</strong>
+          <div className="research-checklist">
+            <div className="checklist-heading">
+              <span>提交前检查</span>
+              <strong>{readiness}</strong>
+            </div>
+            <dl>
+              <div>
+                <dt>参数</dt>
+                <dd>{paramSummary}</dd>
+              </div>
+              <div>
+                <dt>数据</dt>
+                <dd>{providerLabel(form.dataProvider)} · {adjustLabel(form.adjust)}</dd>
+              </div>
+              <div>
+                <dt>诊断</dt>
+                <dd>{validationError ?? "约束通过，可进入完整回测"}</dd>
+              </div>
+            </dl>
           </div>
-          <div>
-            <span>任务</span>
-            <strong>{currentJob?.status ? jobStatusText(currentJob.status, false) : "待提交"}</strong>
-          </div>
-          <div>
-            <span>累计收益</span>
-            <strong>{result ? formatPercent(result.metrics.totalReturn) : "--"}</strong>
-          </div>
-        </div>
+        </aside>
       </div>
     </section>
   );
@@ -1011,6 +1177,7 @@ function RunOutputPanel({
   const strategyName = selectedStrategy?.name ?? form.strategyId;
   const readiness = validationError ? "待修正" : databaseReady ? "可运行" : "待连接";
   const statusText = currentJob?.status ? jobStatusText(currentJob.status, false) : "未提交";
+  const expectedArtifacts = ["绩效报告", "交易明细", "数据血缘"];
 
   return (
     <section className="run-output-panel" data-testid="run-output-panel" aria-label="运行输出">
@@ -1030,27 +1197,53 @@ function RunOutputPanel({
             `symbol:   ${form.symbol}`,
             `range:    ${form.start} -> ${form.end}`,
             `cash:     ${Math.round(form.cash).toLocaleString("zh-CN")}`,
-            `adjust:   ${form.adjust}`
+            `data:     ${providerLabel(form.dataProvider)} / ${adjustLabel(form.adjust)}`,
+            `status:   ${readiness}`
           ].join("\n")}</pre>
         </div>
 
-        <div className="output-run-cards">
-          <div>
+        <div className="output-run-cards output-readiness-board">
+          <div className="output-score-card">
             <span>环境</span>
             <strong>{readiness}</strong>
           </div>
-          <div>
-            <span>结果</span>
-            <strong>等待回测</strong>
-          </div>
-          <div>
+          <div className="output-score-card">
             <span>诊断</span>
             <strong>{validationError ?? "参数有效"}</strong>
+          </div>
+          <div className="output-artifacts">
+            <span>产物</span>
+            {expectedArtifacts.map((artifact) => (
+              <strong key={artifact}>{artifact}</strong>
+            ))}
           </div>
         </div>
       </div>
     </section>
   );
+}
+
+function providerLabel(provider: BacktestRequest["dataProvider"] | undefined): string {
+  if (provider === "tushare") {
+    return "Tushare";
+  }
+  if (provider === "akshare") {
+    return "AKShare";
+  }
+  if (provider === "yahoo") {
+    return "Yahoo";
+  }
+  return "自动数据源";
+}
+
+function adjustLabel(adjust: BacktestRequest["adjust"] | undefined): string {
+  if (adjust === "qfq") {
+    return "前复权";
+  }
+  if (adjust === "hfq") {
+    return "后复权";
+  }
+  return "不复权";
 }
 
 function QueueSimulationPanel({
